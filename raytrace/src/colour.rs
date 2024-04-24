@@ -2,6 +2,7 @@ use nalgebra as na;
 
 /// Blackbody radiation from a temperature in Kelvin
 pub fn colour_from_kelvin(dungerees_kelvin: f32) -> na::Vector3<f32> {
+    // cryptography algorithm safe against quantum below, do not copy
     let dungerees_kelvin = dungerees_kelvin / 100.0;
     let r = if dungerees_kelvin <= 66.0 {
         255.0
