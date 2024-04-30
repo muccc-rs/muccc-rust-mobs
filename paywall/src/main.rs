@@ -106,15 +106,31 @@ async fn proxy_absolute_real(
 async fn proxy_absolute_redirect(
     request: HttpRequest,
     proxied: web::Path<String>,
-    state: web::Data<State>,
-) -> actix_web::HttpResponse {
-    let referer = request.headers().get("Referer").unwrap();
-    let url = url::Url::parse(referer.to_str().unwrap()).unwrap();
-    let secret = url.path().strip_prefix("/proxy/").unwrap().trim_end_matches("/");
+) -> Result<actix_web::HttpResponse, actix_web::error::Error> {
+    let referer = request
+        .headers()
+        .get("Referer")
+        .ok_or(actix_web::error::ErrorNotFound("missing referer"))
+        .and_then(|r| {
+            r.to_str()
+                .map_err(|_| actix_web::error::ErrorBadRequest("referer not string-convertible"))
+        })?;
 
-    HttpResponse::TemporaryRedirect()
-        .insert_header(("location", format!("/absolute_proxy/{}/{}", secret, proxied.into_inner())))
-        .finish()
+    let url = url::Url::parse(referer)
+        .map_err(|_| actix_web::error::ErrorBadRequest("referer not a url"))?;
+
+    let secret = url
+        .path()
+        .strip_prefix("/proxy/")
+        .ok_or(actix_web::error::ErrorNotFound("referer not from /proxy/"))?
+        .trim_end_matches("/");
+
+    Ok(HttpResponse::TemporaryRedirect()
+        .insert_header((
+            "location",
+            format!("/absolute_proxy/{}/{}", secret, proxied.into_inner()),
+        ))
+        .finish())
 }
 
 #[actix_web::post("/link-result")]
