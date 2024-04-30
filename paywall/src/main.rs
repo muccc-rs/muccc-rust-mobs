@@ -1,6 +1,9 @@
 use actix_files::NamedFile;
 use actix_proxy::IntoHttpResponse;
-use actix_web::{web::{self, Redirect}, App, HttpRequest, HttpResponse, HttpServer, Responder};
+use actix_web::{
+    web::{self, Redirect},
+    App, HttpRequest, HttpResponse, HttpServer, Responder,
+};
 use base64::prelude::*;
 
 #[derive(serde::Deserialize)]
@@ -41,9 +44,15 @@ async fn url_print(secret: web::Path<String>, state: web::Data<State>) -> impl R
 async fn do_proxy_request(url: String) -> Result<HttpResponse, actix_proxy::SendRequestError> {
     let client = awc::Client::new();
     let mut response = client.get(&url).send().await?.into_http_response();
-    response.headers_mut().remove(actix_web::http::header::CONTENT_SECURITY_POLICY);
-    response.headers_mut().remove(actix_web::http::header::SET_COOKIE);
-    response.headers_mut().remove(actix_web::http::header::X_FRAME_OPTIONS);
+    response
+        .headers_mut()
+        .remove(actix_web::http::header::CONTENT_SECURITY_POLICY);
+    response
+        .headers_mut()
+        .remove(actix_web::http::header::SET_COOKIE);
+    response
+        .headers_mut()
+        .remove(actix_web::http::header::X_FRAME_OPTIONS);
     println!("adjusted headers");
     Ok(response)
 }
@@ -58,9 +67,7 @@ async fn proxy(
     let url = String::from_utf8(
         orion::aead::open(
             &state.secret_key,
-            &BASE64_STANDARD
-                .decode(secret.as_bytes())
-                .unwrap(),
+            &BASE64_STANDARD.decode(secret.as_bytes()).unwrap(),
         )
         .unwrap(),
     )
@@ -83,9 +90,7 @@ async fn proxy_absolute_real(
     let url = String::from_utf8(
         orion::aead::open(
             &state.secret_key,
-            &BASE64_STANDARD
-                .decode(secret.as_bytes())
-                .unwrap(),
+            &BASE64_STANDARD.decode(secret.as_bytes()).unwrap(),
         )
         .unwrap(),
     )
@@ -111,7 +116,6 @@ async fn proxy_absolute_redirect(
         .insert_header(("location", format!("/absolute_proxy/{}/{}", secret, proxied.into_inner())))
         .finish()
 }
-
 
 #[actix_web::post("/link-result")]
 async fn link_result(data: web::Form<LinkForm>, state: web::Data<State>) -> impl Responder {
