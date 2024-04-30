@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <link rel="stylesheet" type="text/css" href="/xxxpaywallxxx/styles.css" />
+    <script>
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('/xxxpaywallxxx/serviceworker.js', {scope: '/'})
+        .then(function(reg) {
+          // registration worked
+          console.log('Registration succeeded. Scope is ' + reg.scope);
+        }).catch(function(error) {
+          // registration failed
+          console.log('Registration failed with ' + error);
+        });
+      }
+    </script>
+    <title>Free Paywall</title>
+  </head>
+  <body>
+    <iframe src="{{ url }}" class="website-content"></iframe>
+    <div class="paywall"></div>
+  </body>
+</html>
+<!-- ft=html.jinja2 sw=2 et -->

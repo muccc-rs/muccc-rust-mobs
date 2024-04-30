@@ -7,11 +7,10 @@
     <title>Free Paywall</title>
   </head>
   <body>
-    <p>Hello!</p>
-    <form action="/link-result" method="post">
-      <label for="url">Url:</label>
-      <input type="text" id="url" name="url" required/>
-      <input type="submit"/>
-    </form>
+    <p>
+      Here is the paywalled link:
+      <a href="{{ url }}">{{ url }}</a>
+    </p>
   </body>
 </html>
+<!-- ft=html.jinja2 sw=2 et -->
