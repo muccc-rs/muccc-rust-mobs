@@ -17,18 +17,7 @@ struct State {
 }
 
 #[actix_web::get("/url/{secret}")]
-async fn url_print(secret: web::Path<String>, state: web::Data<State>) -> impl Responder {
-    // let url = String::from_utf8(
-    //     orion::aead::open(
-    //         &state.secret_key,
-    //         &BASE64_STANDARD
-    //             .decode(secret.into_inner().as_bytes())
-    //             .unwrap(),
-    //     )
-    //     .unwrap(),
-    // )
-    // .unwrap();
-
+async fn paywall_page(secret: web::Path<String>, state: web::Data<State>) -> impl Responder {
     let mut context = tera::Context::new();
     context.insert(
         "url",
@@ -63,12 +52,12 @@ async fn do_proxy_request(url: String) -> Result<HttpResponse, actix_proxy::Send
 }
 
 #[actix_web::get("/proxy/{secret}/{proxied:.*}")]
-async fn proxy(
-    request: HttpRequest,
+async fn proxy_relative(
+    _request: HttpRequest,
     path: web::Path<(String, String)>,
     state: web::Data<State>,
 ) -> Result<actix_web::HttpResponse, actix_proxy::SendRequestError> {
-    let (secret, proxied) = path.into_inner();
+    let (secret, _proxied) = path.into_inner();
     let url = String::from_utf8(
         orion::aead::open(
             &state.secret_key,
@@ -78,14 +67,14 @@ async fn proxy(
     )
     .unwrap();
 
-    let referer = request.headers().get("Referer");
+    // TODO: if proxied is not empty, we should generate a relative URL proxy request
 
     do_proxy_request(url).await
 }
 
 #[actix_web::get("/absolute_proxy/{secret}/{proxied:.*}")]
-async fn proxy_absolute_real(
-    request: HttpRequest,
+async fn proxy_absolute(
+    _request: HttpRequest,
     path: web::Path<(String, String)>,
     state: web::Data<State>,
 ) -> Result<actix_web::HttpResponse, actix_proxy::SendRequestError> {
@@ -139,7 +128,7 @@ async fn proxy_absolute_redirect(
 }
 
 #[actix_web::post("/link-result")]
-async fn link_result(data: web::Form<LinkForm>, state: web::Data<State>) -> impl Responder {
+async fn get_link_result(data: web::Form<LinkForm>, state: web::Data<State>) -> impl Responder {
     let encrypted_url = orion::aead::seal(&state.secret_key, data.url.as_bytes()).unwrap();
     let mut text = String::new();
     BASE64_STANDARD.encode_string(encrypted_url, &mut text);
@@ -173,13 +162,13 @@ async fn main() -> std::io::Result<()> {
         App::new()
             .app_data(state.clone())
             .service(index_html)
-            .service(link_result)
-            .service(url_print)
-            .service(proxy)
-            .service(proxy_absolute_real)
+            .service(get_link_result)
+            .service(paywall_page)
+            .service(proxy_relative)
+            .service(proxy_absolute)
             .service(
                 actix_files::Files::new("/xxxpaywallxxx/", "./static").index_file("index.html"),
-            ) // Has to be the last service registered
+            )
             .service(proxy_absolute_redirect)
     })
     .bind("0.0.0.0:8080")?
