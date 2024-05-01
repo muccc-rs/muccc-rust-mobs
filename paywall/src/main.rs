@@ -44,16 +44,21 @@ async fn url_print(secret: web::Path<String>, state: web::Data<State>) -> impl R
 async fn do_proxy_request(url: String) -> Result<HttpResponse, actix_proxy::SendRequestError> {
     let client = awc::Client::new();
     let mut response = client.get(&url).send().await?.into_http_response();
-    response
-        .headers_mut()
-        .remove(actix_web::http::header::CONTENT_SECURITY_POLICY);
-    response
-        .headers_mut()
-        .remove(actix_web::http::header::SET_COOKIE);
-    response
-        .headers_mut()
-        .remove(actix_web::http::header::X_FRAME_OPTIONS);
-    println!("adjusted headers");
+
+    let content_type = response.headers_mut().remove(actix_web::http::header::CONTENT_TYPE).next().unwrap().clone();
+    response.headers_mut().clear();
+    response.headers_mut().insert(actix_web::http::header::CONTENT_TYPE, content_type);
+
+    // let scrub_headers = [
+    //     actix_web::http::header::CONTENT_SECURITY_POLICY,
+    //     actix_web::http::header::SET_COOKIE,
+    //     actix_web::http::header::X_FRAME_OPTIONS,
+    //     actix_web::http::header::STRICT_TRANSPORT_SECURITY,
+    // ];
+    // for header in scrub_headers {
+    //     response.headers_mut().remove(header);
+    // }
+
     Ok(response)
 }
 
