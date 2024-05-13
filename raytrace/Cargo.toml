@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 chain-map = "0.1.0"
+count_instructions = "0.1.4"
 nalgebra = "0.32.3"
 rayon = "1.10.0"
 

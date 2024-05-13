@@ -1,24 +1,23 @@
-use std::collections::btree_set::Intersection;
-
 use colour::colour_from_kelvin;
-use na::OPoint;
 use nalgebra as na;
 use rayon::prelude::*;
 
 mod colour;
-mod ppm;
 mod obj;
+mod ppm;
 
 struct Skybox {
     ground_color: na::Vector3<f32>,
     sky_color: na::Vector3<f32>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Default, Debug, Clone, Copy)]
 struct Material {
     ambient: na::Vector3<f32>,
     diffuse: na::Vector3<f32>,
     specular: na::Vector3<f32>,
+    emissive: na::Vector3<f32>,
+    reflectivity: na::Vector3<f32>,
 }
 
 impl Material {
@@ -27,6 +26,8 @@ impl Material {
             ambient,
             diffuse: na::Vector3::zeros(),
             specular: na::Vector3::zeros(),
+            emissive: na::Vector3::zeros(),
+            reflectivity: na::Vector3::zeros(),
         }
     }
 }
@@ -50,13 +51,25 @@ struct PointLight {
 struct Triangle {
     points: [na::Point3<f32>; 3],
     material: Material,
+
+    // precomputed
+    normal: na::Vector3<f32>,
+}
+
+impl Triangle {
+    fn new(points: [na::Point3<f32>; 3], material: Material) -> Self {
+        let [a, b, c] = points;
+        let normal = (b - a).cross(&(c - a)).normalize();
+
+        Self { points, material, normal }
+    }
 }
 
 enum Object {
     Skybox(Skybox),
     Ball(Ball),
     Plane(Triangle),
-    Triangle(Triangle)
+    Triangle(Triangle),
 }
 
 const SURFACE_TEMP_SUN_KELVIN: f32 = 5778.0; // pretty hot
@@ -90,18 +103,19 @@ fn main() {
                 sky_color: na::Vector3::new(0.0, 0.0, 255.0),
             }),
             #[cfg(feature = "no-triangle-dont-do-it")]
-            Object::Triangle(Triangle {
-                points: [
+            Object::Triangle(Triangle::new(
+                [
                     na::Point3::new(20., 0., 0.),
                     na::Point3::new(0., 20., 0.),
                     na::Point3::new(0., 0., 20.),
                 ],
-                material: Material {
+                Material {
                     ambient: na::Vector3::new(10., 10., 10.),
                     diffuse: na::Vector3::new(255., 255., 255.),
                     specular: na::Vector3::new(0., 0., 0.),
-                },
-            }),
+                    reflectivity: na::Vector3::new(0.5, 0.5, 0.5),
+                }),
+            ),
             Object::Ball(Ball {
                 center: na::Point3::new(0., 0., 0.),
                 radius: 10.,
@@ -109,88 +123,103 @@ fn main() {
                     ambient: na::Vector3::new(0., 0., 0.),
                     diffuse: na::Vector3::new(255., 0., 0.),
                     specular: na::Vector3::new(255., 255., 0.),
+                    reflectivity: na::Vector3::new(0.5, 0.5, 0.5),
+                    ..Default::default()
                 },
             }),
             Object::Ball(Ball {
-                center: na::Point3::new(12., 0., 0.),
+                center: na::Point3::new(17., 0., 0.),
                 radius: 5.,
                 material: Material {
                     ambient: na::Vector3::new(0., 0., 0.),
                     diffuse: na::Vector3::new(255., 0., 255.),
                     specular: na::Vector3::new(255., 255., 0.),
+                    ..Default::default()
                 },
             }),
-            Object::Plane(Triangle {
-                points: [
+            Object::Plane(Triangle::new(
+                [
                     na::Point3::new(-100., 0., 0.),
                     na::Point3::new(-100., 1., 0.),
                     na::Point3::new(-100., 0., 1.),
                 ],
-                material: Material {
+                Material {
                     ambient: na::Vector3::new(0., 0., 0.),
                     diffuse: na::Vector3::new(0., 255., 0.),
                     specular: na::Vector3::new(0., 0., 0.),
+                    reflectivity: na::Vector3::new(0.5, 0.5, 0.5),
+                    ..Default::default()
                 },
-            }),
-            Object::Plane(Triangle {
-                points: [
+            )),
+            Object::Plane(Triangle::new(
+                [
                     na::Point3::new(100., 0., 0.),
                     na::Point3::new(100., 0., 1.),
                     na::Point3::new(100., 1., 0.),
                 ],
-                material: Material {
+                Material {
                     ambient: na::Vector3::new(10., 10., 10.),
                     diffuse: na::Vector3::new(255., 0., 0.),
                     specular: na::Vector3::new(0., 0., 0.),
+                    reflectivity: na::Vector3::new(0.5, 0.5, 0.5),
+                    ..Default::default()
                 },
-            }),
-            Object::Plane(Triangle {
-                points: [
+            )),
+            Object::Plane(Triangle::new(
+                [
                     na::Point3::new(0., -23., 0.),
                     na::Point3::new(0., -23., 1.),
                     na::Point3::new(1., -23., 0.),
                 ],
-                material: Material {
+                Material {
                     ambient: na::Vector3::new(10., 10., 10.),
                     diffuse: na::Vector3::new(0., 0., 255.),
+                    reflectivity: na::Vector3::new(0.5, 0.5, 0.5),
+
                     specular: na::Vector3::new(0., 0., 0.),
+                    ..Default::default()
                 },
-            }),
-            Object::Plane(Triangle {
-                points: [
+            )),
+            Object::Plane(Triangle::new(
+                [
                     na::Point3::new(0., 42. * 2., 0.),
                     na::Point3::new(1., 42. * 2., 0.),
                     na::Point3::new(0., 42. * 2., 1.),
                 ],
-                material: Material {
+                Material {
                     ambient: na::Vector3::new(0., 0., 0.),
                     // this gonna be good :))))
                     // UPDATE: wasn't good.
                     //diffuse: colour_from_kelvin(SURFACE_TEMP_EARTH_KELVIN),
+                    reflectivity: na::Vector3::new(0.5, 0.5, 0.5),
+
                     diffuse: na::Vector3::new(255.0, 0., 255.),
                     specular: na::Vector3::new(0., 0., 0.),
+                    ..Default::default()
                 },
-            }),
-            Object::Plane(Triangle {
-                points: [
+            )),
+            Object::Plane(Triangle::new(
+                [
                     na::Point3::new(0., 0., -100.),
                     na::Point3::new(1., 0., -100.),
                     na::Point3::new(0., 1., -100.),
                 ],
-                material: Material {
+                Material {
                     ambient: na::Vector3::new(10., 10., 10.),
                     diffuse: na::Vector3::new(255., 255., 0.),
                     specular: na::Vector3::new(0., 0., 0.),
+                    reflectivity: na::Vector3::new(0.5, 0.5, 0.5),
+
+                    ..Default::default()
                 },
-            }),
+            )),
             // lmao sun
             Object::Ball(Ball {
                 center: sun.position, // - na::Vector3::new(0., 5., 0.),
                 radius: 10.,
                 material: Material {
-                    ambient: sun.color,
-                    diffuse: na::Vector3::new(0., 0., 0.),
-                    specular: na::Vector3::new(0., 0., 0.),
+                    emissive: sun.color,
+                    ..Default::default()
                 },
             }),
         ],
@@ -198,23 +227,24 @@ fn main() {
     };
 
     for &(i, j, k) in &monkey.faces {
-        let mut a = monkey.vertices[i-1];
-        let mut b = monkey.vertices[j-1];
-        let mut c = monkey.vertices[k-1];
+        let mut a = monkey.vertices[i - 1];
+        let mut b = monkey.vertices[j - 1];
+        let mut c = monkey.vertices[k - 1];
         a *= 4.0;
         b *= 4.0;
         c *= 4.0;
         a += na::Vector3::new(-30.0, 0.0, 0.0);
         b += na::Vector3::new(-30.0, 0.0, 0.0);
         c += na::Vector3::new(-30.0, 0.0, 0.0);
-        scene.objects.push(Object::Triangle(Triangle {
-            points: [a, b, c],
-            material: Material {
+        scene.objects.push(Object::Triangle(Triangle::new(
+            [a, b, c],
+            Material {
                 ambient: na::Vector3::new(10., 10., 10.),
                 diffuse: na::Vector3::new(128., 255., 255.),
                 specular: na::Vector3::new(0., 0., 0.),
+                ..Default::default()
             },
-        }));
+        )));
     }
 
     for i in 0..30 {
@@ -235,49 +265,53 @@ fn main() {
         }));
     }
 
+    let start = std::time::Instant::now();
+
     let xres = 512;
     let yres = 512;
 
     let mut pixels = vec![[0, 0, 0]; xres * yres];
+    let mut timing_pixels = vec![[0, 0, 0]; xres * yres];
 
     let coords = (0..xres).flat_map(|ix| (0..yres).map(move |iy| (ix, iy)));
-    let res: Vec<(usize, usize, _)> = coords.par_bridge().map(|(ix, iy)| {
-        let ray_target_viewspace = na::Point3::new(
-            ix as f32 / (xres - 1) as f32 * 2.0 - 1.0,
-            (iy as f32 / (yres - 1) as f32 * 2.0 - 1.0) * -1.,
-            -1.0,
-        );
+    let res: Vec<(std::time::Duration, usize, usize, _)> = coords
+        .par_bridge()
+        .map(|(ix, iy)| {
+            let start_pixel = std::time::Instant::now();
+            let ray_target_viewspace = na::Point3::new(
+                ix as f32 / (xres - 1) as f32 * 2.0 - 1.0,
+                (iy as f32 / (yres - 1) as f32 * 2.0 - 1.0) * -1.,
+                -1.0,
+            );
 
-        let ray_target_worldspace = view
-            .try_inverse()
-            .unwrap()
-            .transform_point(&ray_target_viewspace);
+            let ray_target_worldspace = view
+                .try_inverse()
+                .unwrap()
+                .transform_point(&ray_target_viewspace);
 
-        let ray_vector = (ray_target_worldspace - camera_position);
-        if ix == 0 && iy == 0 {
-            dbg!(ray_vector);
-        }
-        let intersection = trace_ray(&scene, camera_position, ray_vector);
+            let ray_vector = (ray_target_worldspace - camera_position);
 
-        // Phake Phong Lighting
-        let intersection_point = camera_position + ray_vector * intersection.distance; // ISP
-        let light_to_telekom = -(intersection_point - scene.light.position).normalize();
-        //let halfway_point = (camera_position + scene.light.position.coords) / 2.;
-        //let halfway_to_telekom = -(halfway_point - scene.light.position).normalize();
-        let halfway_to_telekom = (light_to_telekom - ray_vector.normalize()).normalize();
+            let color_at_pixel = sample_color_for_ray(
+                &scene,
+                camera_position,
+                ray_vector,
+                3,
+                na::Vector3::new(1.0, 1.0, 1.0),
+            );
+            let took = start_pixel.elapsed();
+            (took, ix, iy, color_at_pixel)
+        })
+        .collect();
 
-        let spectacular_power = halfway_to_telekom.dot(&intersection.normal).max(0.).powf(10.0);
-
-        let diffuse = intersection.material.diffuse * light_to_telekom.dot(&intersection.normal).max(0.);
-        let ambient = intersection.material.ambient;
-        let specular = scene.light.color * spectacular_power; 
-
-        let color_at_pixel = diffuse * 0.8 + ambient * 1.0 + specular * 0.8;
-        
-        (ix, iy, color_at_pixel)
-    }).collect();
-
-    for (ix, iy, color_at_pixel) in res {
+    let took_max = res.iter().map(|(took, _, _, _)| took.as_nanos()).max().unwrap();
+    for (took, ix, iy, color_at_pixel) in res {
+        let took_scaled = took.as_nanos() * 255 / took_max;
+        let took_scaled = (took_scaled * 100).min(255);
+        timing_pixels[ix + iy * xres] = [
+            took_scaled as u8,
+            took_scaled as u8,
+            took_scaled as u8,
+        ];
         pixels[ix + iy * xres] = [
             color_at_pixel.x.min(255.0) as u8,
             color_at_pixel.y.min(255.0) as u8,
@@ -301,6 +335,60 @@ fn main() {
         std::fs::File::create("test.ppm").unwrap(),
     )
     .unwrap();
+    ppm::write(
+        &timing_pixels,
+        xres,
+        yres,
+        std::fs::File::create("timing.ppm").unwrap(),
+    )
+    .unwrap();
+
+    eprintln!("it took {:?}", start.elapsed());
+}
+
+fn sample_color_for_ray(
+    scene: &Scene,
+    src: na::Point3<f32>,
+    ray: na::Vector3<f32>,
+    bounces_left: u32,
+    importance: na::Vector3<f32>,
+) -> na::Vector3<f32> {
+    let intersection = trace_ray(&scene, src, ray);
+    let intersection_point = src + ray * intersection.distance; // ISP
+
+    // Real Raytraced Specular (tm)
+    let importance = importance.component_mul(&intersection.material.reflectivity);
+    let reflection = if bounces_left > 0 && importance > na::Vector3::new(0.1, 0.1, 0.1) {
+        if ray.dot(&intersection.normal) < 0. {
+            let new_ray = ray - 2.0 * ray.dot(&intersection.normal) * intersection.normal;
+            sample_color_for_ray(
+                scene,
+                intersection_point,
+                new_ray,
+                bounces_left - 1,
+                importance,
+            )
+        } else {
+            na::Vector3::new(0.0, 0.0, 0.0)
+        }
+    } else {
+        na::Vector3::new(0.0, 0.0, 0.0)
+    };
+
+    // Phake Phong Lighting
+    let light_to_telekom = -(intersection_point - scene.light.position).normalize();
+    let halfway_to_telekom = (light_to_telekom - ray.normalize()).normalize();
+
+    let diffuse =
+        intersection.material.diffuse * light_to_telekom.dot(&intersection.normal).max(0.);
+    // let diffuse = na::Vector3::zeros();
+    let ambient = intersection.material.ambient;
+
+    let color_at_pixel = diffuse
+        + ambient
+        + reflection.component_mul(&intersection.material.reflectivity)
+        + intersection.material.emissive;
+    color_at_pixel
 }
 
 fn trace_ray(
@@ -363,7 +451,7 @@ fn intersect(
         }
         Object::Triangle(p) => {
             let [a, b, c] = p.points;
-            let normal = (b - a).cross(&(c - a)).normalize();
+            let normal = p.normal;
             let denom = ray.dot(&normal);
 
             // Not looking towards the plane.
@@ -415,6 +503,9 @@ fn intersect(
             let discriminant = b * b - 4. * a * c;
             if discriminant > 0. {
                 let dist = (-b - discriminant.sqrt()) / (2.0 * a);
+                if dist < 0. {
+                    return None;
+                }
                 Some(IntersectionResult {
                     material: s.material,
                     distance: dist,

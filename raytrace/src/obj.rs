@@ -1,5 +1,5 @@
-use std::fs::read_to_string;
 use nalgebra as na;
+use std::fs::read_to_string;
 
 #[derive(Debug, Clone)]
 pub enum LoadError {
@@ -31,27 +31,28 @@ impl Obj {
                     let numbers: Result<Vec<f32>, _> = parts.map(|el| el.parse::<f32>()).collect();
                     if let Ok(numbers) = numbers {
                         match numbers.as_slice() {
-                            [x, y, z, w] => { 
+                            [x, y, z, w] => {
                                 res.vertices.push(na::Point3::new(x / w, y / w, z / w));
-                            },
-                            [x, y, z] => { 
+                            }
+                            [x, y, z] => {
                                 res.vertices.push(na::Point3::new(*x, *y, *z));
-                            },
+                            }
                             _ => (),
                         }
                     }
-                },
+                }
                 Some("f") => {
-                    let numbers: Result<Vec<usize>, _> = parts.map(|el| el.parse::<usize>()).collect();
+                    let numbers: Result<Vec<usize>, _> =
+                        parts.map(|el| el.parse::<usize>()).collect();
                     if let Ok(numbers) = numbers {
                         match numbers.as_slice() {
-                            [a, b, c] => { 
+                            [a, b, c] => {
                                 res.faces.push((*a, *b, *c));
-                            },
+                            }
                             _ => (),
                         }
                     }
-                },
+                }
                 Some(_) => {
                     continue;
                 }
