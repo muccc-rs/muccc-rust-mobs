@@ -1,33 +1,74 @@
 use core::fmt;
+use std::io::BufRead as _;
+
+mod bitfield_tactics;
 
 fn main() {
-    // let pf = PlayingField::default();
-    let pf = PlayingField::new(
-        "004300209005009001070060043006002087190007400050083000600000105003508690042910300",
+    let zeroed = PlayingField::new(
+        "000000000000000000000000000000000000000000000000000000000000000000000000000000000",
     )
     .unwrap();
 
-    // Solved
-    //let pf = PlayingField::new(
-    //    "123456789456789123789123456234567891567891234891234567345678912678912345912345678",
-    //)
-    //.unwrap();
-    println!("{}", pf);
+    let mut solved = zeroed.try_field_recursive_solver().unwrap();
+    solved.fields[0] = Number(None);
+    let almost_solved = solved;
 
-    println!("Checked Constraints: {}", pf.check_constraints());
-    println!("Checked Completed: {}", pf.is_complete());
-    println!("Checked Solved: {}", pf.is_solved());
+    let almost_solved = PlayingField::new(
+        "094000130000000000000076002080010000032000000000200060000050400000008007006304008",
+    )
+    .unwrap();
+    println!("{}", almost_solved);
 
-    // for g in group_indices() {
-    //     let mut pf = PlayingField::default();
-    //     pf.set_group(g, Coloring(Some(8)));
-    //     println!("{}", pf);
-    // }
+    let solver = bitfield_tactics::BitfiedTacticsSolver::new(&almost_solved);
+    println!("{}", solver.extract());
+
+    return;
+}
+
+#[allow(dead_code)]
+fn read_from_stdin() {
+    let stdin = std::io::stdin();
+    let stdin = stdin.lock();
+
+    for (idx, line) in stdin.lines().enumerate() {
+        let Ok(line) = line else {
+            break;
+        };
+
+        let Ok(pf) = PlayingField::new(&line) else {
+            continue;
+        };
+
+        // Solved
+        //let pf = PlayingField::new(
+        //    "123456789456789123789123456234567891567891234891234567345678912678912345912345678",
+        //)
+        //.unwrap();
+        println!("{}", pf);
+
+        println!("Checked Constraints: {}", pf.check_constraints());
+        println!("Checked Completed: {}", pf.is_complete());
+        println!("Checked Solved: {}", pf.is_solved());
+
+        // for g in group_indices() {
+        //     let mut pf = PlayingField::default();
+        //     pf.set_group(g, Coloring(Some(8)));
+        //     println!("{}", pf);
+        // }
+
+        println!("Sudoko {idx}");
+        let solved = pf.try_field_recursive_solver();
+        if let Some(solved) = solved {
+            println!("{}", solved);
+        } else {
+            println!("No solution found");
+        }
+    }
 }
 
 #[derive(Clone, PartialEq, Eq)]
 struct PlayingField {
-    fields: [Coloring; 9 * 9],
+    fields: [Number; 9 * 9],
 }
 
 fn group_indices() -> Vec<[usize; 9]> {
@@ -57,14 +98,14 @@ impl PlayingField {
     pub fn new(f: &str) -> Result<PlayingField, String> {
         let mut fields = vec![];
         for c in f.chars() {
-            fields.push(Coloring::new(c)?);
+            fields.push(Number::new(c)?);
         }
         Ok(PlayingField {
             fields: fields.try_into().unwrap(),
         })
     }
 
-    pub fn set_group(&mut self, group: [usize; 9], color: Coloring) {
+    pub fn set_group(&mut self, group: [usize; 9], color: Number) {
         for idx in group {
             self.fields[idx] = color;
         }
@@ -88,17 +129,42 @@ impl PlayingField {
     pub fn is_solved(&self) -> bool {
         self.is_complete() && self.check_constraints()
     }
+
+    pub fn try_field_recursive_solver(&self) -> Option<Self> {
+        let first_unset_index =
+            if let Some(first_unset_index) = self.fields.iter().position(|c| c.0.is_none()) {
+                first_unset_index
+            } else if self.is_solved() {
+                return Some(self.clone());
+            } else {
+                return None;
+            };
+
+        let mut new_field = self.clone();
+        for i in 1..=9 {
+            new_field.fields[first_unset_index] = Number(Some(i));
+            if !new_field.check_constraints() {
+                continue;
+            }
+            if new_field.is_solved() {
+                return Some(new_field);
+            } else if let Some(pf) = new_field.try_field_recursive_solver() {
+                return Some(pf);
+            }
+        }
+        None
+    }
 }
 
 /// A number in a field.
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Coloring(Option<u8>);
+pub struct Number(Option<u8>);
 
-impl Coloring {
+impl Number {
     pub fn new(c: char) -> Result<Self, String> {
         match c.to_digit(10) {
-            Some(0) => Ok(Coloring(None)),
-            Some(d) if d <= 9 => Ok(Coloring(Some(d.try_into().unwrap()))),
+            Some(0) => Ok(Number(None)),
+            Some(d) if d <= 9 => Ok(Number(Some(d.try_into().unwrap()))),
             Some(d) => Err(format!("Number out of range: {}", d)),
             None => Err(format!("Not a digit: {:?}", c)),
         }
@@ -108,7 +174,7 @@ impl Coloring {
 impl Default for PlayingField {
     fn default() -> Self {
         PlayingField {
-            fields: [Coloring(None); 81],
+            fields: [Number(None); 81],
         }
     }
 }
