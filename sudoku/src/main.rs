@@ -20,7 +20,10 @@ fn main() {
     println!("{}", almost_solved);
 
     let solver = bitfield_tactics::BitfiedTacticsSolver::new(&almost_solved);
-    println!("{}", solver.extract());
+    let solved = solver.try_solve().unwrap().extract();
+    println!("{}", solved);
+
+    solved.print_bad_constraints();
 
     return;
 }
@@ -94,6 +97,15 @@ fn group_indices() -> Vec<[usize; 9]> {
     res
 }
 
+fn group_index_index_to_human_readable(i: usize) -> String {
+    match i {
+        0..=8 => format!("ROW {}", i + 1),
+        9..=17 => format!("COL {}", i - 9 + 1),
+        18..=26 => format!("SQUARE {}", i - 18 + 1),
+        _ => panic!("Invalid group index index {i}"),
+    }
+}
+
 impl PlayingField {
     pub fn new(f: &str) -> Result<PlayingField, String> {
         let mut fields = vec![];
@@ -108,6 +120,16 @@ impl PlayingField {
     pub fn set_group(&mut self, group: [usize; 9], color: Number) {
         for idx in group {
             self.fields[idx] = color;
+        }
+    }
+
+    pub fn print_bad_constraints(&self) {
+        for (i, g) in group_indices().into_iter().enumerate() {
+            let mut numbers: Vec<_> = g.into_iter().filter_map(|i| self.fields[i].0).collect();
+            numbers.sort();
+            if numbers.windows(2).any(|w| w[0] == w[1]) {
+                println!("Bad Constraint in {}", group_index_index_to_human_readable(i));
+            }
         }
     }
 
@@ -154,6 +176,13 @@ impl PlayingField {
         }
         None
     }
+
+    pub fn iter_populated_fields(&self) -> impl Iterator<Item = (usize, u8)> + '_ {
+        self.fields
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, f)| f.as_number().map(|n| (idx, n)))
+    }
 }
 
 /// A number in a field.
@@ -168,6 +197,10 @@ impl Number {
             Some(d) => Err(format!("Number out of range: {}", d)),
             None => Err(format!("Not a digit: {:?}", c)),
         }
+    }
+
+    pub fn as_number(&self) -> Option<u8> {
+        self.0
     }
 }
 
