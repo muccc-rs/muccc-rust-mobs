@@ -45,3 +45,6 @@ Temporary Items
 # perf
 perf*
 flamegraph.svg
+
+# other crab (no, don't ignore the crabs D:)
+*.ppm
