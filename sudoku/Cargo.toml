@@ -3,4 +3,7 @@ name = "sudoku"
 version = "0.1.0"
 edition = "2021"
 
+authors = ["muccc rust group"]
+publish = false
+
 [dependencies]
