@@ -4,26 +4,30 @@ use std::io::BufRead as _;
 mod bitfield_tactics;
 
 fn main() {
-    let zeroed = PlayingField::new(
-        "000000000000000000000000000000000000000000000000000000000000000000000000000000000",
-    )
-    .unwrap();
+    // let zeroed = PlayingField::new(
+    //     "000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+    // )
+    // .unwrap();
 
-    let mut solved = zeroed.try_field_recursive_solver().unwrap();
-    solved.fields[0] = Number(None);
-    let almost_solved = solved;
+    // let mut solved = zeroed.try_field_recursive_solver().unwrap();
+    // solved.fields[0] = Number(None);
+    // let almost_solved = solved;
 
-    let almost_solved = PlayingField::new(
-        "094000130000000000000076002080010000032000000000200060000050400000008007006304008",
-    )
-    .unwrap();
-    println!("{}", almost_solved);
+    //let almost_solved = PlayingField::new(
+    //    "094000130000000000000076002080010000032000000000200060000050400000008007006304008",
+    //)
+    //.unwrap();
+    //println!("{}", almost_solved);
 
-    let solver = bitfield_tactics::BitfiedTacticsSolver::new(&almost_solved);
-    let solved = solver.try_solve().unwrap().extract();
-    println!("{}", solved);
+    //let solver = bitfield_tactics::BitfiedTacticsSolver::new(&almost_solved);
+    //println!("Solver: {}", solver.extract());
+    //let solved = solver.try_solve().unwrap().extract();
+    //println!("{}", solved);
 
-    solved.print_bad_constraints();
+    //dbg!(solved.is_solved());
+
+    //solved.print_bad_constraints();
+    read_from_stdin();
 
     return;
 }
@@ -47,11 +51,11 @@ fn read_from_stdin() {
         //    "123456789456789123789123456234567891567891234891234567345678912678912345912345678",
         //)
         //.unwrap();
-        println!("{}", pf);
+        // println!("{}", pf);
 
-        println!("Checked Constraints: {}", pf.check_constraints());
-        println!("Checked Completed: {}", pf.is_complete());
-        println!("Checked Solved: {}", pf.is_solved());
+        // println!("Checked Constraints: {}", pf.check_constraints());
+        // println!("Checked Completed: {}", pf.is_complete());
+        // println!("Checked Solved: {}", pf.is_solved());
 
         // for g in group_indices() {
         //     let mut pf = PlayingField::default();
@@ -60,11 +64,14 @@ fn read_from_stdin() {
         // }
 
         println!("Sudoko {idx}");
-        let solved = pf.try_field_recursive_solver();
-        if let Some(solved) = solved {
+        let solver = bitfield_tactics::BitfiedTacticsSolver::new(&pf);
+        // println!("Solver: {}", solver.extract());
+        let solved = solver.try_solve().unwrap().extract();
+        if solved.is_solved() {
             println!("{}", solved);
         } else {
             println!("No solution found");
+            return;
         }
     }
 }
@@ -125,17 +132,26 @@ impl PlayingField {
 
     pub fn print_bad_constraints(&self) {
         for (i, g) in group_indices().into_iter().enumerate() {
-            let mut numbers: Vec<_> = g.into_iter().filter_map(|i| self.fields[i].0).collect();
+            let mut numbers: Vec<_> = g
+                .into_iter()
+                .filter_map(|i| self.fields[i].as_number())
+                .collect();
             numbers.sort();
             if numbers.windows(2).any(|w| w[0] == w[1]) {
-                println!("Bad Constraint in {}", group_index_index_to_human_readable(i));
+                println!(
+                    "Bad Constraint in {}",
+                    group_index_index_to_human_readable(i)
+                );
             }
         }
     }
 
     pub fn check_constraints(&self) -> bool {
         for g in group_indices() {
-            let mut numbers: Vec<_> = g.into_iter().filter_map(|i| self.fields[i].0).collect();
+            let mut numbers: Vec<_> = g
+                .into_iter()
+                .filter_map(|i| self.fields[i].as_number())
+                .collect();
             numbers.sort();
             if numbers.windows(2).any(|w| w[0] == w[1]) {
                 return false;
@@ -145,7 +161,7 @@ impl PlayingField {
     }
 
     pub fn is_complete(&self) -> bool {
-        self.fields.iter().all(|c| c.0.is_some())
+        self.fields.iter().all(|c| c.as_number().is_some())
     }
 
     pub fn is_solved(&self) -> bool {
@@ -153,14 +169,15 @@ impl PlayingField {
     }
 
     pub fn try_field_recursive_solver(&self) -> Option<Self> {
-        let first_unset_index =
-            if let Some(first_unset_index) = self.fields.iter().position(|c| c.0.is_none()) {
-                first_unset_index
-            } else if self.is_solved() {
-                return Some(self.clone());
-            } else {
-                return None;
-            };
+        let first_unset_index = if let Some(first_unset_index) =
+            self.fields.iter().position(|c| c.as_number().is_none())
+        {
+            first_unset_index
+        } else if self.is_solved() {
+            return Some(self.clone());
+        } else {
+            return None;
+        };
 
         let mut new_field = self.clone();
         for i in 1..=9 {

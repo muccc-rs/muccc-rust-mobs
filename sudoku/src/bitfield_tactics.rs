@@ -25,8 +25,57 @@ impl BitfiedTacticsSolver {
         this
     }
 
-    pub fn set_field(&mut self, idx: usize, number: u8) {
-        let groups = group_indices();
+    pub fn check_constraints_of_idx(&self, idx: usize) -> bool {
+        for group in group_indices() {
+            if !group.contains(&idx) {
+                continue;
+            }
+
+            let mut numbers: Vec<_> = group
+                .into_iter()
+                .filter_map(|i| self.fields[i].to_exact_number().as_number())
+                .collect();
+            numbers.sort();
+            if numbers.windows(2).any(|w| w[0] == w[1]) {
+                return false;
+            }
+        }
+        true
+    }
+
+    pub fn eliminate(&mut self, idx: usize, bit_mask: u16) -> bool {
+        //dbg!(idx, bit_mask);
+
+        for group in group_indices() {
+            if !group.contains(&idx) {
+                continue;
+            }
+
+            for member_idx in group {
+                if member_idx != idx {
+                    // Only change the field when the bitmask would modify it
+                    if (self.fields[member_idx].mask & bit_mask) != 0 {
+                        self.fields[member_idx].mask &= !bit_mask;
+                        match self.fields[member_idx].num_set_bits() {
+                            // If we have only one possible value, we also have to eliminate its rows, column and cells.
+                            1 => {
+                                if !self.eliminate(member_idx, self.fields[member_idx].mask) {
+                                    return false;
+                                }
+                            }
+                            // If there is no possible value for this field, the whole state is incorrect.
+                            0 => return false,
+                            _ => (),
+                        }
+                    }
+                }
+            }
+        }
+        true
+    }
+
+    /// Sets field and updates all possibilities of all fields in related groups
+    pub fn set_field(&mut self, idx: usize, number: u8) -> bool {
         let bit_mask = 1 << (number - 1);
         debug_assert!(
             self.fields[idx].mask & bit_mask != 0,
@@ -34,19 +83,9 @@ impl BitfiedTacticsSolver {
             number,
             self.fields[idx].mask,
         );
-        for group in &groups {
-            if !group.contains(&idx) {
-                continue;
-            }
 
-            for &member_idx in group {
-                if member_idx == idx {
-                    self.fields[member_idx].mask = bit_mask;
-                } else {
-                    self.fields[member_idx].mask &= !bit_mask;
-                }
-            }
-        }
+        self.fields[idx].mask = bit_mask;
+        self.eliminate(idx, bit_mask)
     }
 
     pub fn try_solve(&self) -> Option<Self> {
@@ -60,6 +99,17 @@ impl BitfiedTacticsSolver {
             }
         }
 
+        if self.fields.iter().any(|f| f.num_set_bits() == 0) {
+            return None;
+        }
+
+        if !self.extract().check_constraints() {
+            println!("Unsolvable: {}", self.extract());
+            self.extract().print_bad_constraints();
+            //return None;
+            panic!("Unsolvable");
+        }
+
         let mut sorted_fields: Vec<(usize, BitVector)> = self
             .fields
             .iter()
@@ -69,11 +119,14 @@ impl BitfiedTacticsSolver {
             .collect();
         sorted_fields.sort_by_key(|(i, f)| f.num_set_bits());
 
-        let (idx, bv) = match sorted_fields.get(0).copied() {
-            // empty
+        let (idx, bv) = match sorted_fields.first().copied() {
+            // empty -> all solved
             None => return Some(self.clone()),
             // not solveable
-            Some((_, field)) if field.num_set_bits() == 0 => return None,
+            Some((_, field)) if field.num_set_bits() == 0 => {
+                unreachable!("");
+                return None;
+            }
             // all good
             Some(f) => f,
         };
@@ -83,11 +136,15 @@ impl BitfiedTacticsSolver {
 
         for number in bv.iter_possible_numbers() {
             let mut new_field = self.clone();
-            new_field.set_field(idx, number);
+            if !new_field.set_field(idx, number) {
+                continue;
+            };
+            //dbg!(idx, number);
             if let Some(new_field) = new_field.try_solve() {
                 return Some(new_field);
             }
         }
+
         // No number works
         None
     }
