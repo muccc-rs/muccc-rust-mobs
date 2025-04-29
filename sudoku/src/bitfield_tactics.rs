@@ -17,35 +17,15 @@ impl BitfiedTacticsSolver {
             this.set_field(idx, number);
         }
 
-        for (idx, field) in this.fields.iter().enumerate() {
+        for field in this.fields.iter() {
             // TODO: Unsolveable cases panic for now
-            debug_assert!(field.num_set_bits() != 0);
+            assert!(field.num_set_bits() != 0);
         }
 
         this
     }
 
-    pub fn check_constraints_of_idx(&self, idx: usize) -> bool {
-        for group in group_indices() {
-            if !group.contains(&idx) {
-                continue;
-            }
-
-            let mut numbers: Vec<_> = group
-                .into_iter()
-                .filter_map(|i| self.fields[i].to_exact_number().as_number())
-                .collect();
-            numbers.sort();
-            if numbers.windows(2).any(|w| w[0] == w[1]) {
-                return false;
-            }
-        }
-        true
-    }
-
     pub fn eliminate(&mut self, idx: usize, bit_mask: u16) -> bool {
-        //dbg!(idx, bit_mask);
-
         for group in group_indices() {
             if !group.contains(&idx) {
                 continue;
@@ -115,17 +95,16 @@ impl BitfiedTacticsSolver {
             .iter()
             .copied()
             .enumerate()
-            .filter(|(i, f)| f.num_set_bits() != 1)
+            .filter(|(_i, f)| f.num_set_bits() != 1)
             .collect();
-        sorted_fields.sort_by_key(|(i, f)| f.num_set_bits());
+        sorted_fields.sort_by_key(|(_i, f)| f.num_set_bits());
 
         let (idx, bv) = match sorted_fields.first().copied() {
             // empty -> all solved
             None => return Some(self.clone()),
             // not solveable
             Some((_, field)) if field.num_set_bits() == 0 => {
-                unreachable!("");
-                return None;
+                unreachable!();
             }
             // all good
             Some(f) => f,
