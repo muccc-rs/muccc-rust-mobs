@@ -48,3 +48,5 @@ flamegraph.svg
 
 # other crab (no, don't ignore the crabs D:)
 *.ppm
+
+.direnv/
