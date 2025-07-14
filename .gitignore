@@ -50,3 +50,6 @@ flamegraph.svg
 *.ppm
 
 .direnv/
+
+# vim swap files
+*.swp

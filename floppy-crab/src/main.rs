@@ -1,6 +1,9 @@
 use bevy::prelude::*;
+use rand::Rng;
 
 const GRAVITY: f32 = 420.69;
+const VERTICAL_GAP_SIZE: f32 = 600.0;
+const HORIZONTAL_GAP_TIME: f32 = 3.5;
 
 // ADR:
 // 2 options
@@ -11,8 +14,12 @@ const GRAVITY: f32 = 420.69;
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
+        .insert_resource(PipeTimer(Timer::from_seconds(
+            HORIZONTAL_GAP_TIME,
+            TimerMode::Repeating,
+        )))
         .add_systems(Startup, setup)
-        .add_systems(FixedUpdate, (advance_physics, move_pipe))
+        .add_systems(FixedUpdate, (advance_physics, move_pipe, spawn_pipes))
         .add_systems(
             // The `RunFixedMainLoop` schedule allows us to schedule systems to run before and
             // after the fixed timestep loop.
@@ -55,7 +62,10 @@ struct PhysicalTranslation(Vec3);
 #[derive(Debug, Component, Clone, Copy, PartialEq, Default, Deref, DerefMut)]
 struct PreviousPhysicalTranslation(Vec3);
 
-fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
+#[derive(Resource)]
+struct PipeTimer(Timer);
+
+fn setup(mut commands: Commands, asset_server: Res<AssetServer>, mut timer: ResMut<PipeTimer>) {
     commands.spawn(Camera2d);
 
     commands.spawn((
@@ -65,6 +75,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         PhysicalTranslation::default(),
         PreviousPhysicalTranslation::default(),
     ));
+    timer.0.tick(std::time::Duration::from_secs_f32(1.8));
 }
 
 fn advance_physics(
@@ -106,12 +117,7 @@ fn interpolate_rendered_transform(
     }
 }
 
-fn handle_input(
-    keyboard_input: Res<ButtonInput<KeyCode>>,
-    mut query: Query<&mut Velocity>,
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-) {
+fn handle_input(keyboard_input: Res<ButtonInput<KeyCode>>, mut query: Query<&mut Velocity>) {
     /// Since Bevy's default 2D camera setup is scaled such that
     /// one unit is one pixel, you can think of this as
     /// "How many pixels per second should the player move?"
@@ -120,22 +126,46 @@ fn handle_input(
         if keyboard_input.pressed(KeyCode::Space) {
             velocity.0 = Vec3::new(0., SPEED, 0.);
         }
-        if keyboard_input.pressed(KeyCode::Enter) {
-            spawn_pipe(&mut commands, &asset_server);
-        }
     }
-}
-
-fn spawn_pipe(commands: &mut Commands, asset_server: &Res<AssetServer>) {
-    commands.spawn((
-        Sprite::from_image(asset_server.load("meta-pipe.png")),
-        Transform::from_translation(Vec3::new(100.0, 0.0, 0.0)),
-        Pipe,
-    ));
 }
 
 fn move_pipe(mut query: Query<&mut Transform, With<Pipe>>, fixed_time: Res<Time<Fixed>>) {
     for mut transform in query.iter_mut() {
         transform.translation.x -= 100.0 * fixed_time.delta_secs();
     }
+}
+
+fn spawn_pipes(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    time: Res<Time>,
+    mut timer: ResMut<PipeTimer>,
+) {
+    // update our timer with the time elapsed since the last update
+    if !timer.0.tick(time.delta()).just_finished() {
+        return;
+    }
+
+    let mut rng = rand::rng();
+    let gap_y_center = rng.random::<f32>() * 500.0 - 250.0;
+
+    commands.spawn((
+        Sprite::from_image(asset_server.load("meta-pipe.png")),
+        Transform::from_translation(Vec3::new(
+            600.0,
+            VERTICAL_GAP_SIZE / 2.0 + gap_y_center,
+            0.0,
+        )),
+        Pipe,
+    ));
+
+    commands.spawn((
+        Sprite::from_image(asset_server.load("meta-pipe.png")),
+        Transform::from_translation(Vec3::new(
+            600.0,
+            gap_y_center - VERTICAL_GAP_SIZE / 2.0,
+            0.0,
+        )),
+        Pipe,
+    ));
 }
