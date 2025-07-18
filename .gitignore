@@ -55,7 +55,6 @@ flamegraph.svg
 *.swp
 
 .envrc
-shell.nix
 rust/
 \#test.el\#
 \#\#test.el\#\#
