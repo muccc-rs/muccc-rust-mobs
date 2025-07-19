@@ -53,3 +53,8 @@ flamegraph.svg
 
 # vim swap files
 *.swp
+
+.envrc
+rust/
+\#test.el\#
+\#\#test.el\#\#
