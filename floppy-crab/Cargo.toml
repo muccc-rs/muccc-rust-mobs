@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 bevy = { version = "0.16.1", default-features = false, features = [
     "bevy_asset",
+    "bevy_audio",
     "bevy_core_pipeline",
     "bevy_log",
     "bevy_sprite",
@@ -13,6 +14,7 @@ bevy = { version = "0.16.1", default-features = false, features = [
     "dynamic_linking",
     "x11",
     "png",
+	"vorbis",
 ] }
 rand = "0.9.1"
 

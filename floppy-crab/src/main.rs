@@ -75,6 +75,9 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>, mut timer: ResM
         PhysicalTranslation::default(),
         PreviousPhysicalTranslation::default(),
     ));
+
+    commands.spawn((AudioPlayer::new(asset_server.load("crabrave.ogg"))));
+
     timer.0.tick(std::time::Duration::from_secs_f32(1.8));
 }
 

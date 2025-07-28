@@ -58,3 +58,7 @@ flamegraph.svg
 rust/
 \#test.el\#
 \#\#test.el\#\#
+
+\#*\#
+.\#*
+.~*
