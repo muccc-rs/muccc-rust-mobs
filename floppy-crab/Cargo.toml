@@ -11,12 +11,14 @@ bevy = { version = "0.16.1", default-features = false, features = [
     "bevy_log",
     "bevy_sprite",
     "bevy_winit",
+    "bevy_ui",
     "dynamic_linking",
     "x11",
     "png",
-	"vorbis",
+    "vorbis",
+    "wav",
 ] }
-rand = "0.9.1"
+rand = "0"
 
 # Enable a small amount of optimization in the dev profile.
 [profile.dev]

@@ -1,4 +1,9 @@
-use bevy::prelude::*;
+use bevy::{
+    audio::PlaybackMode,
+    color::palettes::css::*,
+    prelude::*,
+    text::{FontSmoothing, LineBreak, TextBounds},
+};
 use rand::Rng;
 
 const GRAVITY: f32 = 420.69;
@@ -18,6 +23,7 @@ fn main() {
             HORIZONTAL_GAP_TIME,
             TimerMode::Repeating,
         )))
+        .insert_resource(ScoreBoard { passed_pipes: 0 })
         .add_systems(Startup, setup)
         .add_systems(FixedUpdate, (advance_physics, move_pipe, spawn_pipes))
         .add_systems(
@@ -47,6 +53,8 @@ struct Velocity(Vec3);
 
 #[derive(Debug, Component, Clone, Copy, PartialEq, Default)]
 struct Pipe;
+#[derive(Debug, Component, Clone, Copy, PartialEq, Default)]
+struct PipeStack;
 
 /// The actual position of the player in the physics simulation.
 /// This is separate from the `Transform`, which is merely a visual representation.
@@ -65,8 +73,20 @@ struct PreviousPhysicalTranslation(Vec3);
 #[derive(Resource)]
 struct PipeTimer(Timer);
 
+#[derive(Resource)]
+struct ScoreBoard {
+    passed_pipes: u32,
+}
+
 fn setup(mut commands: Commands, asset_server: Res<AssetServer>, mut timer: ResMut<PipeTimer>) {
-    commands.spawn(Camera2d);
+    let projection = OrthographicProjection {
+        scaling_mode: bevy::render::camera::ScalingMode::FixedVertical {
+            viewport_height: 1000.0,
+        },
+        ..OrthographicProjection::default_2d()
+    };
+
+    commands.spawn((Camera2d, Projection::Orthographic(projection)));
 
     commands.spawn((
         Sprite::from_image(asset_server.load("gentleman-ferris-transparent.png")),
@@ -76,7 +96,20 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>, mut timer: ResM
         PreviousPhysicalTranslation::default(),
     ));
 
-    commands.spawn((AudioPlayer::new(asset_server.load("crabrave.ogg"))));
+    commands.spawn((
+        Text("123".to_owned()),
+        TextFont::from_font(asset_server.load("fonts/FiraSans-Bold.ttf")),
+        //TextLayout::new(JustifyText::Left, linebreak),
+        //BackgroundColor(Color::srgb(0.8 - j as f32 * 0.2, 0., 0.)),
+    ));
+
+    commands.spawn((
+        AudioPlayer::new(asset_server.load("crabrave.ogg")),
+        PlaybackSettings {
+            mode: PlaybackMode::Loop,
+            ..default()
+        },
+    ));
 
     timer.0.tick(std::time::Duration::from_secs_f32(1.8));
 }
@@ -120,21 +153,37 @@ fn interpolate_rendered_transform(
     }
 }
 
-fn handle_input(keyboard_input: Res<ButtonInput<KeyCode>>, mut query: Query<&mut Velocity>) {
+fn handle_input(
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+    mut query: Query<&mut Velocity>,
+    asset_server: Res<AssetServer>,
+    mut commands: Commands,
+) {
     /// Since Bevy's default 2D camera setup is scaled such that
     /// one unit is one pixel, you can think of this as
     /// "How many pixels per second should the player move?"
     const SPEED: f32 = 210.0;
     for mut velocity in query.iter_mut() {
-        if keyboard_input.pressed(KeyCode::Space) {
+        if keyboard_input.just_pressed(KeyCode::Space) {
             velocity.0 = Vec3::new(0., SPEED, 0.);
+            commands.spawn(AudioPlayer::new(asset_server.load("jump.wav")));
         }
     }
 }
 
-fn move_pipe(mut query: Query<&mut Transform, With<Pipe>>, fixed_time: Res<Time<Fixed>>) {
+fn move_pipe(
+    mut query: Query<&mut Transform, With<PipeStack>>,
+    fixed_time: Res<Time<Fixed>>,
+    mut score: ResMut<ScoreBoard>,
+) {
     for mut transform in query.iter_mut() {
+        let initial_position = transform.translation.x;
         transform.translation.x -= 100.0 * fixed_time.delta_secs();
+        if initial_position > 0. && transform.translation.x <= 0. {
+            score.passed_pipes += 1;
+            println!("Passed: {}", score.passed_pipes);
+            dbg!(score.passed_pipes);
+        }
     }
 }
 
@@ -153,22 +202,28 @@ fn spawn_pipes(
     let gap_y_center = rng.random::<f32>() * 500.0 - 250.0;
 
     commands.spawn((
-        Sprite::from_image(asset_server.load("meta-pipe.png")),
-        Transform::from_translation(Vec3::new(
-            600.0,
-            VERTICAL_GAP_SIZE / 2.0 + gap_y_center,
-            0.0,
-        )),
-        Pipe,
-    ));
-
-    commands.spawn((
-        Sprite::from_image(asset_server.load("meta-pipe.png")),
-        Transform::from_translation(Vec3::new(
-            600.0,
-            gap_y_center - VERTICAL_GAP_SIZE / 2.0,
-            0.0,
-        )),
-        Pipe,
+        PipeStack,
+        Transform::from_translation(Vec3::new(600.0, 0.0, 0.0)),
+        Visibility::default(),
+        children![
+            (
+                Sprite::from_image(asset_server.load("meta-pipe.png")),
+                Transform::from_translation(Vec3::new(
+                    0.0,
+                    gap_y_center - VERTICAL_GAP_SIZE / 2.0,
+                    0.0,
+                )),
+                Pipe,
+            ),
+            (
+                Sprite::from_image(asset_server.load("meta-pipe.png")),
+                Transform::from_translation(Vec3::new(
+                    0.0,
+                    VERTICAL_GAP_SIZE / 2.0 + gap_y_center,
+                    0.0,
+                )),
+                Pipe,
+            ),
+        ],
     ));
 }
