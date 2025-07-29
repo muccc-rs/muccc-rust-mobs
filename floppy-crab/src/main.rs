@@ -98,7 +98,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>, mut timer: ResM
 
     commands.spawn((
         Text("123".to_owned()),
-        TextFont::from_font(asset_server.load("fonts/FiraSans-Bold.ttf")),
+        TextFont::from_font(asset_server.load("ComicNeue-Regular.ttf")),
         //TextLayout::new(JustifyText::Left, linebreak),
         //BackgroundColor(Color::srgb(0.8 - j as f32 * 0.2, 0., 0.)),
     ));
