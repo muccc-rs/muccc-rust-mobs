@@ -288,7 +288,25 @@ fn spawn_pipes(
                     custom_size: Some(Vec2::new(100., 500.)),
                     ..Default::default()
                 },
+                Transform::from_translation(Vec3::new(0.0, -VERTICAL_GAP_SIZE / 2.0 - 750., 0.0,)),
+                Pipe,
+            ),
+            (
+                Sprite {
+                    image: asset_server.load("meta-pipe.png"),
+                    custom_size: Some(Vec2::new(100., 500.)),
+                    ..Default::default()
+                },
                 Transform::from_translation(Vec3::new(0.0, VERTICAL_GAP_SIZE / 2.0 + 250., 0.0,)),
+                Pipe,
+            ),
+            (
+                Sprite {
+                    image: asset_server.load("meta-pipe.png"),
+                    custom_size: Some(Vec2::new(100., 500.)),
+                    ..Default::default()
+                },
+                Transform::from_translation(Vec3::new(0.0, VERTICAL_GAP_SIZE / 2.0 + 750., 0.0,)),
                 Pipe,
             ),
         ],
