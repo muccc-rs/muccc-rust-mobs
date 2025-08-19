@@ -1,3 +1,5 @@
+use bevy::prelude::ops::powf;
+use bevy::prelude::ops::sqrt;
 use bevy::{
     audio::PlaybackMode,
     color::palettes::css::*,
@@ -245,8 +247,22 @@ fn check_collision(
         let gap_bottom = pipe_y - VERTICAL_GAP_SIZE / 2.;
         let gap_top = pipe_y + VERTICAL_GAP_SIZE / 2.;
 
-        let player_bottom = player_transform.translation.y - player_width / 2.;
-        let player_top = player_transform.translation.y + player_width / 2.;
+        let half_height = if player_transform.translation.x < pipe_x_start {
+            sqrt(
+                powf(player_width / 2.0, 2.0)
+                    - powf(pipe_x_start - player_transform.translation.x, 2.0),
+            )
+        } else if player_transform.translation.x > pipe_x_end {
+            sqrt(
+                powf(player_width / 2.0, 2.0)
+                    - powf(player_transform.translation.x - pipe_x_end, 2.0),
+            )
+        } else {
+            player_width / 2.0
+        };
+
+        let player_bottom = player_transform.translation.y - half_height;
+        let player_top = player_transform.translation.y + half_height;
         let ingap = gap_top > player_top && gap_bottom < player_bottom;
         if !ingap {
             panic!()
