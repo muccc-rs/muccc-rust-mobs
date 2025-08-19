@@ -7,7 +7,7 @@ use bevy::{
 use rand::Rng;
 
 const GRAVITY: f32 = 420.69;
-const VERTICAL_GAP_SIZE: f32 = 600.0;
+const VERTICAL_GAP_SIZE: f32 = 200.0;
 const HORIZONTAL_GAP_TIME: f32 = 3.5;
 
 // ADR:
@@ -25,7 +25,16 @@ fn main() {
         )))
         .insert_resource(ScoreBoard { passed_pipes: 0 })
         .add_systems(Startup, setup)
-        .add_systems(FixedUpdate, (advance_physics, move_pipe, spawn_pipes))
+        .add_systems(
+            FixedUpdate,
+            (
+                advance_physics,
+                move_pipe,
+                spawn_pipes,
+                update_score,
+                check_collision,
+            ),
+        )
         .add_systems(
             // The `RunFixedMainLoop` schedule allows us to schedule systems to run before and
             // after the fixed timestep loop.
@@ -55,6 +64,10 @@ struct Velocity(Vec3);
 struct Pipe;
 #[derive(Debug, Component, Clone, Copy, PartialEq, Default)]
 struct PipeStack;
+#[derive(Debug, Component, Clone, Copy, PartialEq, Default)]
+struct ScoreText;
+#[derive(Debug, Component, Clone, Copy, PartialEq, Default)]
+struct Player;
 
 /// The actual position of the player in the physics simulation.
 /// This is separate from the `Transform`, which is merely a visual representation.
@@ -89,18 +102,28 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>, mut timer: ResM
     commands.spawn((Camera2d, Projection::Orthographic(projection)));
 
     commands.spawn((
-        Sprite::from_image(asset_server.load("gentleman-ferris-transparent.png")),
-        Transform::from_scale(Vec3::splat(0.3)),
+        Player,
+        Sprite {
+            image: asset_server.load("gentleman-ferris-transparent.png"),
+            custom_size: Some(Vec2::new(100., 100.)),
+            ..Default::default()
+        },
         Velocity::default(),
         PhysicalTranslation::default(),
         PreviousPhysicalTranslation::default(),
     ));
 
     commands.spawn((
+        ScoreText,
         Text("123".to_owned()),
-        TextFont::from_font(asset_server.load("ComicNeue-Regular.ttf")),
+        TextFont::from_font(asset_server.load("ComicNeue-Regular.ttf")).with_font_size(100.0),
         //TextLayout::new(JustifyText::Left, linebreak),
         //BackgroundColor(Color::srgb(0.8 - j as f32 * 0.2, 0., 0.)),
+        Node {
+            top: Val::Px(10.0),
+            left: Val::Px(10.0),
+            ..default()
+        },
     ));
 
     commands.spawn((
@@ -187,6 +210,50 @@ fn move_pipe(
     }
 }
 
+fn check_collision(
+    mut pipe_stack_transforms_query_factory_abstract_visitor: Query<
+        &mut Transform,
+        With<PipeStack>,
+    >,
+    player: Query<(&Transform, &Sprite), (With<Player>, Without<PipeStack>)>,
+) {
+    let (player_transform, player_sprite) = player.single().expect("No player found");
+    // TODO: Factor out this constante
+    let player_width = 100.;
+    let pipe_width = 100.;
+    for pipe_of_things_you_all_are_smoking in
+        pipe_stack_transforms_query_factory_abstract_visitor.iter()
+    {
+        let (pipe_x, pipe_y) = (
+            pipe_of_things_you_all_are_smoking.translation.x,
+            pipe_of_things_you_all_are_smoking.translation.y,
+        );
+
+        // Check if this pipe coordinates and the player coordinates are intersecting
+        let pipe_x_start = pipe_x - pipe_width / 2.;
+        let pipe_x_end = pipe_x + pipe_width / 2.;
+        let player_offset = player_width / 2.;
+        let player_x_start = player_transform.translation.x - player_width / 2.;
+        let player_x_end = player_transform.translation.x + player_width / 2.;
+
+        let intersects_horizontal = pipe_x_start <= player_x_end && pipe_x_end >= player_x_start;
+        if !intersects_horizontal {
+            continue;
+        }
+
+        // Check vertical intersection
+        let gap_bottom = pipe_y - VERTICAL_GAP_SIZE / 2.;
+        let gap_top = pipe_y + VERTICAL_GAP_SIZE / 2.;
+
+        let player_bottom = player_transform.translation.y - player_width / 2.;
+        let player_top = player_transform.translation.y + player_width / 2.;
+        let ingap = gap_top > player_top && gap_bottom < player_bottom;
+        if !ingap {
+            panic!()
+        }
+    }
+}
+
 fn spawn_pipes(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
@@ -203,27 +270,33 @@ fn spawn_pipes(
 
     commands.spawn((
         PipeStack,
-        Transform::from_translation(Vec3::new(600.0, 0.0, 0.0)),
+        Transform::from_translation(Vec3::new(600.0, gap_y_center, 0.0)),
         Visibility::default(),
         children![
             (
-                Sprite::from_image(asset_server.load("meta-pipe.png")),
-                Transform::from_translation(Vec3::new(
-                    0.0,
-                    gap_y_center - VERTICAL_GAP_SIZE / 2.0,
-                    0.0,
-                )),
+                Sprite {
+                    image: asset_server.load("meta-pipe.png"),
+                    custom_size: Some(Vec2::new(100., 500.)),
+                    ..Default::default()
+                },
+                Transform::from_translation(Vec3::new(0.0, -VERTICAL_GAP_SIZE / 2.0 - 250., 0.0,)),
                 Pipe,
             ),
             (
-                Sprite::from_image(asset_server.load("meta-pipe.png")),
-                Transform::from_translation(Vec3::new(
-                    0.0,
-                    VERTICAL_GAP_SIZE / 2.0 + gap_y_center,
-                    0.0,
-                )),
+                Sprite {
+                    image: asset_server.load("meta-pipe.png"),
+                    custom_size: Some(Vec2::new(100., 500.)),
+                    ..Default::default()
+                },
+                Transform::from_translation(Vec3::new(0.0, VERTICAL_GAP_SIZE / 2.0 + 250., 0.0,)),
                 Pipe,
             ),
         ],
     ));
+}
+
+fn update_score(mut query: Query<&mut Text, With<ScoreText>>, score_board: Res<ScoreBoard>) {
+    for mut text in query.iter_mut() {
+        text.0 = format!("Score: {}", score_board.passed_pipes);
+    }
 }
