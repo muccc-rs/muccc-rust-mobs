@@ -1,11 +1,6 @@
 use bevy::prelude::ops::powf;
 use bevy::prelude::ops::sqrt;
-use bevy::{
-    audio::PlaybackMode,
-    color::palettes::css::*,
-    prelude::*,
-    text::{FontSmoothing, LineBreak, TextBounds},
-};
+use bevy::{audio::PlaybackMode, prelude::*};
 use rand::Rng;
 
 const GRAVITY: f32 = 420.69;
@@ -26,6 +21,7 @@ fn main() {
             TimerMode::Repeating,
         )))
         .insert_resource(ScoreBoard { passed_pipes: 0 })
+        .insert_resource(Running(true))
         .add_systems(Startup, setup)
         .add_systems(
             FixedUpdate,
@@ -89,6 +85,9 @@ struct PreviousPhysicalTranslation(Vec3);
 struct PipeTimer(Timer);
 
 #[derive(Resource)]
+struct Running(bool);
+
+#[derive(Resource)]
 struct ScoreBoard {
     passed_pipes: u32,
 }
@@ -141,40 +140,46 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>, mut timer: ResM
 
 fn advance_physics(
     fixed_time: Res<Time<Fixed>>,
+    running: Res<Running>,
     mut query: Query<(
         &mut PhysicalTranslation,
         &mut PreviousPhysicalTranslation,
         &mut Velocity,
     )>,
 ) {
-    for (mut current_physical_translation, mut previous_physical_translation, mut velocity) in
-        query.iter_mut()
-    {
-        previous_physical_translation.0 = current_physical_translation.0;
-        current_physical_translation.0 += velocity.0 * fixed_time.delta_secs();
-        velocity.0 = velocity.0 + Vec3::new(0., -GRAVITY, 0.) * fixed_time.delta_secs();
+    if running.0 {
+        for (mut current_physical_translation, mut previous_physical_translation, mut velocity) in
+            query.iter_mut()
+        {
+            previous_physical_translation.0 = current_physical_translation.0;
+            current_physical_translation.0 += velocity.0 * fixed_time.delta_secs();
+            velocity.0 += Vec3::new(0., -GRAVITY, 0.) * fixed_time.delta_secs();
+        }
     }
 }
 
 fn interpolate_rendered_transform(
     fixed_time: Res<Time<Fixed>>,
+    running: Res<Running>,
     mut query: Query<(
         &mut Transform,
         &PhysicalTranslation,
         &PreviousPhysicalTranslation,
     )>,
 ) {
-    for (mut transform, current_physical_translation, previous_physical_translation) in
-        query.iter_mut()
-    {
-        let previous = previous_physical_translation.0;
-        let current = current_physical_translation.0;
-        // The overstep fraction is a value between 0 and 1 that tells us how far we are between
-        // two fixed timesteps.
-        let alpha = fixed_time.overstep_fraction();
+    if running.0 {
+        for (mut transform, current_physical_translation, previous_physical_translation) in
+            query.iter_mut()
+        {
+            let previous = previous_physical_translation.0;
+            let current = current_physical_translation.0;
+            // The overstep fraction is a value between 0 and 1 that tells us how far we are between
+            // two fixed timesteps.
+            let alpha = fixed_time.overstep_fraction();
 
-        let rendered_translation = previous.lerp(current, alpha);
-        transform.translation = rendered_translation;
+            let rendered_translation = previous.lerp(current, alpha);
+            transform.translation = rendered_translation;
+        }
     }
 }
 
@@ -183,6 +188,10 @@ fn handle_input(
     mut query: Query<&mut Velocity>,
     asset_server: Res<AssetServer>,
     mut commands: Commands,
+    mut score: ResMut<ScoreBoard>,
+    mut running: ResMut<Running>,
+    pipes: Query<Entity, With<PipeStack>>,
+    mut player: Query<&mut Transform, With<Player>>,
 ) {
     /// Since Bevy's default 2D camera setup is scaled such that
     /// one unit is one pixel, you can think of this as
@@ -192,6 +201,18 @@ fn handle_input(
         if keyboard_input.just_pressed(KeyCode::Space) {
             velocity.0 = Vec3::new(0., SPEED, 0.);
             commands.spawn(AudioPlayer::new(asset_server.load("jump.wav")));
+        } else if keyboard_input.just_released(KeyCode::KeyR) {
+            //delete all pipestacks
+            for pipe in pipes.iter() {
+                commands.entity(pipe).despawn();
+            }
+            // reset player position and velocity
+            velocity.0 = Vec3::new(0., 0., 0.);
+            player.single_mut().expect("No player found").translation = Vec3::new(0., 0., 0.);
+
+            //reset score
+            score.passed_pipes = 0;
+            running.0 = true;
         }
     }
 }
@@ -199,27 +220,28 @@ fn handle_input(
 fn move_pipe(
     mut query: Query<&mut Transform, With<PipeStack>>,
     fixed_time: Res<Time<Fixed>>,
+    running: Res<Running>,
     mut score: ResMut<ScoreBoard>,
 ) {
-    for mut transform in query.iter_mut() {
-        let initial_position = transform.translation.x;
-        transform.translation.x -= 100.0 * fixed_time.delta_secs();
-        if initial_position > 0. && transform.translation.x <= 0. {
-            score.passed_pipes += 1;
-            println!("Passed: {}", score.passed_pipes);
-            dbg!(score.passed_pipes);
+    if running.0 {
+        for mut transform in query.iter_mut() {
+            let initial_position = transform.translation.x;
+            transform.translation.x -= 100.0 * fixed_time.delta_secs();
+            if initial_position > 0. && transform.translation.x <= 0. {
+                score.passed_pipes += 1;
+                println!("Passed: {}", score.passed_pipes);
+                dbg!(score.passed_pipes);
+            }
         }
     }
 }
 
 fn check_collision(
-    mut pipe_stack_transforms_query_factory_abstract_visitor: Query<
-        &mut Transform,
-        With<PipeStack>,
-    >,
-    player: Query<(&Transform, &Sprite), (With<Player>, Without<PipeStack>)>,
+    mut running: ResMut<Running>,
+    pipe_stack_transforms_query_factory_abstract_visitor: Query<&mut Transform, With<PipeStack>>,
+    player: Query<&Transform, (With<Player>, Without<PipeStack>)>,
 ) {
-    let (player_transform, player_sprite) = player.single().expect("No player found");
+    let player_transform = player.single().expect("No player found");
     // TODO: Factor out this constante
     let player_width = 100.;
     let pipe_width = 100.;
@@ -234,7 +256,6 @@ fn check_collision(
         // Check if this pipe coordinates and the player coordinates are intersecting
         let pipe_x_start = pipe_x - pipe_width / 2.;
         let pipe_x_end = pipe_x + pipe_width / 2.;
-        let player_offset = player_width / 2.;
         let player_x_start = player_transform.translation.x - player_width / 2.;
         let player_x_end = player_transform.translation.x + player_width / 2.;
 
@@ -265,7 +286,8 @@ fn check_collision(
         let player_top = player_transform.translation.y + half_height;
         let ingap = gap_top > player_top && gap_bottom < player_bottom;
         if !ingap {
-            panic!()
+            //freeze the game
+            running.0 = false;
         }
     }
 }
