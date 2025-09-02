@@ -31,6 +31,7 @@ fn main() {
                 spawn_pipes,
                 update_score,
                 check_collision,
+                replace_player,
             ),
         )
         .add_systems(
@@ -354,5 +355,12 @@ fn spawn_pipes(
 fn update_score(mut query: Query<&mut Text, With<ScoreText>>, score_board: Res<ScoreBoard>) {
     for mut text in query.iter_mut() {
         text.0 = format!("Score: {}", score_board.passed_pipes);
+    }
+}
+
+fn replace_player(mut query: Query<&mut PhysicalTranslation, With<Player>>) {
+    let mut player_transform = query.single_mut().unwrap();
+    if player_transform.0.y < -500.0 {
+        player_transform.0.y = 500.0;
     }
 }
