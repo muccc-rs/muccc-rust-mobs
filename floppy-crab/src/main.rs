@@ -22,6 +22,7 @@ fn main() {
         )))
         .insert_resource(ScoreBoard { passed_pipes: 0 })
         .insert_resource(Running(true))
+        .insert_resource(Paused(false))
         .add_systems(Startup, setup)
         .add_systems(
             FixedUpdate,
@@ -32,7 +33,7 @@ fn main() {
                 update_score,
                 check_collision,
                 replace_player,
-            ),
+            ).run_if(|paused: Res<Paused>| !paused.0),
         )
         .add_systems(
             // The `RunFixedMainLoop` schedule allows us to schedule systems to run before and
@@ -92,6 +93,9 @@ struct Running(bool);
 struct ScoreBoard {
     passed_pipes: u32,
 }
+
+#[derive(Resource)]
+struct Paused(bool);
 
 fn setup(mut commands: Commands, asset_server: Res<AssetServer>, mut timer: ResMut<PipeTimer>) {
     let projection = OrthographicProjection {
@@ -193,6 +197,7 @@ fn handle_input(
     mut running: ResMut<Running>,
     pipes: Query<Entity, With<PipeStack>>,
     mut player: Query<&mut Transform, With<Player>>,
+    mut paused: ResMut<Paused>,
 ) {
     /// Since Bevy's default 2D camera setup is scaled such that
     /// one unit is one pixel, you can think of this as
@@ -214,6 +219,9 @@ fn handle_input(
             //reset score
             score.passed_pipes = 0;
             running.0 = true;
+        }
+        if keyboard_input.just_pressed(KeyCode::Enter) {
+            paused.0 = !paused.0;
         }
     }
 }
