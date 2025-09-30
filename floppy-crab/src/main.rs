@@ -100,16 +100,7 @@ struct ScoreBoard {
 #[derive(Resource)]
 struct Paused(bool);
 
-fn setup(mut commands: Commands, asset_server: Res<AssetServer>, mut timer: ResMut<PipeTimer>) {
-    let projection = OrthographicProjection {
-        scaling_mode: bevy::render::camera::ScalingMode::FixedVertical {
-            viewport_height: 1000.0,
-        },
-        ..OrthographicProjection::default_2d()
-    };
-
-    commands.spawn((Camera2d, Projection::Orthographic(projection)));
-
+fn create_player(commands: &mut Commands, asset_server: &Res<AssetServer>) {
     commands.spawn((
         Player,
         Sprite {
@@ -121,6 +112,19 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>, mut timer: ResM
         PhysicalTranslation::default(),
         PreviousPhysicalTranslation::default(),
     ));
+}
+
+fn setup(mut commands: Commands, asset_server: Res<AssetServer>, mut timer: ResMut<PipeTimer>) {
+    let projection = OrthographicProjection {
+        scaling_mode: bevy::render::camera::ScalingMode::FixedVertical {
+            viewport_height: 1000.0,
+        },
+        ..OrthographicProjection::default_2d()
+    };
+
+    commands.spawn((Camera2d, Projection::Orthographic(projection)));
+
+    create_player(&mut commands, &asset_server);
 
     commands.spawn((
         ScoreText,
@@ -204,6 +208,7 @@ fn handle_input(
             &mut Velocity,
             &mut PhysicalTranslation,
             &mut PreviousPhysicalTranslation,
+            Entity,
         ),
         With<Player>,
     >,
@@ -215,7 +220,7 @@ fn handle_input(
     const SPEED: f32 = 210.0;
 
     if keyboard_input.just_pressed(KeyCode::Space) {
-        let (_, mut velocity, _, _) = player.single_mut().expect("No player found");
+        let (_, mut velocity, _, _, _) = player.single_mut().expect("No player found");
         velocity.0 = Vec3::new(0., SPEED, 0.);
         commands.spawn(AudioPlayer::new(asset_server.load("jump.wav")));
     } else if keyboard_input.just_released(KeyCode::KeyR) {
@@ -223,13 +228,9 @@ fn handle_input(
         for pipe in pipes.iter() {
             commands.entity(pipe).despawn();
         }
-        // reset player position and velocity
-        let (mut trans, mut vel, mut phys_trans, mut prev_phys_trans) =
-            player.single_mut().expect("No player found");
-        trans.translation = Vec3::new(0., 0., 0.);
-        vel.0 = Vec3::new(0., 0., 0.);
-        phys_trans.0 = Vec3::new(0., 0., 0.);
-        prev_phys_trans.0 = Vec3::new(0., 0., 0.);
+        // reset player by recreating it
+        commands.entity(player.single().unwrap().4).despawn();
+        create_player(&mut commands, &asset_server);
 
         //reset score
         score.passed_pipes = 0;
