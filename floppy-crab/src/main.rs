@@ -33,7 +33,8 @@ fn main() {
                 update_score,
                 check_collision,
                 replace_player,
-            ).run_if(|paused: Res<Paused>| !paused.0),
+            )
+                .run_if(|paused: Res<Paused>| !paused.0),
         )
         .add_systems(
             // The `RunFixedMainLoop` schedule allows us to schedule systems to run before and
@@ -50,7 +51,9 @@ fn main() {
                 // simulation has been advanced. This could be run in `Update`, but if we run it
                 // here instead, the systems in `Update` will be working with the `Transform` that
                 // will actually be shown on screen.
-                interpolate_rendered_transform.in_set(RunFixedMainLoopSystem::AfterFixedMainLoop),
+                interpolate_rendered_transform
+                    .in_set(RunFixedMainLoopSystem::AfterFixedMainLoop)
+                    .run_if(|paused: Res<Paused>| !paused.0),
             ),
         )
         .run();
