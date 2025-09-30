@@ -193,7 +193,6 @@ fn interpolate_rendered_transform(
 
 fn handle_input(
     keyboard_input: Res<ButtonInput<KeyCode>>,
-    mut query: Query<&mut Velocity>,
     asset_server: Res<AssetServer>,
     mut commands: Commands,
     mut score: ResMut<ScoreBoard>,
@@ -202,6 +201,7 @@ fn handle_input(
     mut player: Query<
         (
             &mut Transform,
+            &mut Velocity,
             &mut PhysicalTranslation,
             &mut PreviousPhysicalTranslation,
         ),
@@ -213,29 +213,30 @@ fn handle_input(
     /// one unit is one pixel, you can think of this as
     /// "How many pixels per second should the player move?"
     const SPEED: f32 = 210.0;
-    for mut velocity in query.iter_mut() {
-        if keyboard_input.just_pressed(KeyCode::Space) {
-            velocity.0 = Vec3::new(0., SPEED, 0.);
-            commands.spawn(AudioPlayer::new(asset_server.load("jump.wav")));
-        } else if keyboard_input.just_released(KeyCode::KeyR) {
-            //delete all pipestacks
-            for pipe in pipes.iter() {
-                commands.entity(pipe).despawn();
-            }
-            // reset player position and velocity
-            velocity.0 = Vec3::new(0., 0., 0.);
-            let mut player_components = player.single_mut().expect("No player found");
-            player_components.0.translation = Vec3::new(0., 0., 0.);
-            player_components.1.0 = Vec3::new(0., 0., 0.);
-            player_components.2.0 = Vec3::new(0., 0., 0.);
 
-            //reset score
-            score.passed_pipes = 0;
-            running.0 = true;
+    if keyboard_input.just_pressed(KeyCode::Space) {
+        let (_, mut velocity, _, _) = player.single_mut().expect("No player found");
+        velocity.0 = Vec3::new(0., SPEED, 0.);
+        commands.spawn(AudioPlayer::new(asset_server.load("jump.wav")));
+    } else if keyboard_input.just_released(KeyCode::KeyR) {
+        //delete all pipestacks
+        for pipe in pipes.iter() {
+            commands.entity(pipe).despawn();
         }
-        if keyboard_input.just_pressed(KeyCode::Enter) {
-            paused.0 = !paused.0;
-        }
+        // reset player position and velocity
+        let (mut trans, mut vel, mut phys_trans, mut prev_phys_trans) =
+            player.single_mut().expect("No player found");
+        trans.translation = Vec3::new(0., 0., 0.);
+        vel.0 = Vec3::new(0., 0., 0.);
+        phys_trans.0 = Vec3::new(0., 0., 0.);
+        prev_phys_trans.0 = Vec3::new(0., 0., 0.);
+
+        //reset score
+        score.passed_pipes = 0;
+        running.0 = true;
+    }
+    if keyboard_input.just_pressed(KeyCode::Enter) {
+        paused.0 = !paused.0;
     }
 }
 
