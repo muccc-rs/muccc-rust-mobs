@@ -199,7 +199,14 @@ fn handle_input(
     mut score: ResMut<ScoreBoard>,
     mut running: ResMut<Running>,
     pipes: Query<Entity, With<PipeStack>>,
-    mut player: Query<&mut Transform, With<Player>>,
+    mut player: Query<
+        (
+            &mut Transform,
+            &mut PhysicalTranslation,
+            &mut PreviousPhysicalTranslation,
+        ),
+        With<Player>,
+    >,
     mut paused: ResMut<Paused>,
 ) {
     /// Since Bevy's default 2D camera setup is scaled such that
@@ -217,7 +224,10 @@ fn handle_input(
             }
             // reset player position and velocity
             velocity.0 = Vec3::new(0., 0., 0.);
-            player.single_mut().expect("No player found").translation = Vec3::new(0., 0., 0.);
+            let mut player_components = player.single_mut().expect("No player found");
+            player_components.0.translation = Vec3::new(0., 0., 0.);
+            player_components.1.0 = Vec3::new(0., 0., 0.);
+            player_components.2.0 = Vec3::new(0., 0., 0.);
 
             //reset score
             score.passed_pipes = 0;
