@@ -12,6 +12,7 @@ bevy = { version = "0.16.1", default-features = false, features = [
     "bevy_sprite",
     "bevy_winit",
     "bevy_ui",
+    "bevy_state",
     "dynamic_linking",
     "x11",
     "png",

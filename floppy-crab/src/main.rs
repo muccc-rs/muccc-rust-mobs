@@ -13,16 +13,28 @@ const HORIZONTAL_GAP_TIME: f32 = 3.5;
 // 2nd move crab right, move camera left, ...
 // Choose 1st
 
+#[derive(Debug, Clone, Copy, Default, Eq, PartialEq, Hash, States)]
+enum GameState {
+    #[default]
+    InitGame,
+    InGame,
+    DeathScreen,
+    Paused,
+}
+
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
+        .init_state::<GameState>()
         .insert_resource(PipeTimer(Timer::from_seconds(
             HORIZONTAL_GAP_TIME,
             TimerMode::Repeating,
         )))
         .insert_resource(ScoreBoard { passed_pipes: 0 })
-        .insert_resource(Running(true))
-        .insert_resource(Paused(false))
+        // Add onInitGame systems
+        .add_systems(OnEnter(GameState::InitGame), reinit_game)
+        .add_systems(OnEnter(GameState::DeathScreen), show_game_over_screen)
+        .add_systems(OnExit(GameState::DeathScreen), despawn_death_screen)
         .add_systems(Startup, setup)
         .add_systems(
             FixedUpdate,
@@ -34,7 +46,7 @@ fn main() {
                 check_collision,
                 replace_player,
             )
-                .run_if(|paused: Res<Paused>| !paused.0),
+                .run_if(in_state(GameState::InGame)),
         )
         .add_systems(
             // The `RunFixedMainLoop` schedule allows us to schedule systems to run before and
@@ -46,14 +58,22 @@ fn main() {
                 // late, as the physics simulation would already have been advanced. If we ran this
                 // in `FixedUpdate`, it would sometimes not register player input, as that schedule
                 // may run zero times per frame.
-                handle_input.in_set(RunFixedMainLoopSystem::BeforeFixedMainLoop),
+                handle_input
+                    .in_set(RunFixedMainLoopSystem::BeforeFixedMainLoop)
+                    .run_if(in_state(GameState::InGame)),
+                handle_input_unpause
+                    .in_set(RunFixedMainLoopSystem::BeforeFixedMainLoop)
+                    .run_if(in_state(GameState::Paused)),
+                handle_input_when_dead
+                    .in_set(RunFixedMainLoopSystem::BeforeFixedMainLoop)
+                    .run_if(in_state(GameState::DeathScreen)),
                 // The player's visual representation needs to be updated after the physics
                 // simulation has been advanced. This could be run in `Update`, but if we run it
                 // here instead, the systems in `Update` will be working with the `Transform` that
                 // will actually be shown on screen.
                 interpolate_rendered_transform
                     .in_set(RunFixedMainLoopSystem::AfterFixedMainLoop)
-                    .run_if(|paused: Res<Paused>| !paused.0),
+                    .run_if(in_state(GameState::InGame)),
             ),
         )
         .run();
@@ -71,6 +91,8 @@ struct PipeStack;
 struct ScoreText;
 #[derive(Debug, Component, Clone, Copy, PartialEq, Default)]
 struct Player;
+#[derive(Debug, Component, Clone, Copy, PartialEq, Default)]
+struct DeathScreen;
 
 /// The actual position of the player in the physics simulation.
 /// This is separate from the `Transform`, which is merely a visual representation.
@@ -90,15 +112,9 @@ struct PreviousPhysicalTranslation(Vec3);
 struct PipeTimer(Timer);
 
 #[derive(Resource)]
-struct Running(bool);
-
-#[derive(Resource)]
 struct ScoreBoard {
     passed_pipes: u32,
 }
-
-#[derive(Resource)]
-struct Paused(bool);
 
 fn create_player(commands: &mut Commands, asset_server: &Res<AssetServer>) {
     commands.spawn((
@@ -123,8 +139,6 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>, mut timer: ResM
     };
 
     commands.spawn((Camera2d, Projection::Orthographic(projection)));
-
-    create_player(&mut commands, &asset_server);
 
     commands.spawn((
         ScoreText,
@@ -152,55 +166,47 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>, mut timer: ResM
 
 fn advance_physics(
     fixed_time: Res<Time<Fixed>>,
-    running: Res<Running>,
     mut query: Query<(
         &mut PhysicalTranslation,
         &mut PreviousPhysicalTranslation,
         &mut Velocity,
     )>,
 ) {
-    if running.0 {
-        for (mut current_physical_translation, mut previous_physical_translation, mut velocity) in
-            query.iter_mut()
-        {
-            previous_physical_translation.0 = current_physical_translation.0;
-            current_physical_translation.0 += velocity.0 * fixed_time.delta_secs();
-            velocity.0 += Vec3::new(0., -GRAVITY, 0.) * fixed_time.delta_secs();
-        }
+    for (mut current_physical_translation, mut previous_physical_translation, mut velocity) in
+        query.iter_mut()
+    {
+        previous_physical_translation.0 = current_physical_translation.0;
+        current_physical_translation.0 += velocity.0 * fixed_time.delta_secs();
+        velocity.0 += Vec3::new(0., -GRAVITY, 0.) * fixed_time.delta_secs();
     }
 }
 
 fn interpolate_rendered_transform(
     fixed_time: Res<Time<Fixed>>,
-    running: Res<Running>,
     mut query: Query<(
         &mut Transform,
         &PhysicalTranslation,
         &PreviousPhysicalTranslation,
     )>,
 ) {
-    if running.0 {
-        for (mut transform, current_physical_translation, previous_physical_translation) in
-            query.iter_mut()
-        {
-            let previous = previous_physical_translation.0;
-            let current = current_physical_translation.0;
-            // The overstep fraction is a value between 0 and 1 that tells us how far we are between
-            // two fixed timesteps.
-            let alpha = fixed_time.overstep_fraction();
+    for (mut transform, current_physical_translation, previous_physical_translation) in
+        query.iter_mut()
+    {
+        let previous = previous_physical_translation.0;
+        let current = current_physical_translation.0;
+        // The overstep fraction is a value between 0 and 1 that tells us how far we are between
+        // two fixed timesteps.
+        let alpha = fixed_time.overstep_fraction();
 
-            let rendered_translation = previous.lerp(current, alpha);
-            transform.translation = rendered_translation;
-        }
+        let rendered_translation = previous.lerp(current, alpha);
+        transform.translation = rendered_translation;
     }
 }
 
-fn handle_input(
-    keyboard_input: Res<ButtonInput<KeyCode>>,
+fn reinit_game(
     asset_server: Res<AssetServer>,
     mut commands: Commands,
     mut score: ResMut<ScoreBoard>,
-    mut running: ResMut<Running>,
     pipes: Query<Entity, With<PipeStack>>,
     mut player: Query<
         (
@@ -212,7 +218,61 @@ fn handle_input(
         ),
         With<Player>,
     >,
-    mut paused: ResMut<Paused>,
+    mut next_state: ResMut<NextState<GameState>>,
+) {
+    //delete all pipestacks
+    for pipe in pipes.iter() {
+        commands.entity(pipe).despawn();
+    }
+    // reset player by recreating it
+    if let Ok(player) = player.single() {
+        commands.entity(player.4).despawn();
+    }
+    create_player(&mut commands, &asset_server);
+
+    //reset score
+    score.passed_pipes = 0;
+    next_state.set(GameState::InGame);
+}
+
+fn show_game_over_screen(mut commands: Commands, mut score: ResMut<ScoreBoard>, window: Query<&Window>) {
+    // draw a transparent black rectangle
+    let resolution = &window.single().unwrap().resolution;
+    let rect = Node {
+        width: Val::Percent(100.0),
+        height: Val::Percent(100.0),
+        ..Default::default()
+    };
+    commands.spawn((DeathScreen, (rect, Transform::default(), Visibility::default(), BackgroundColor(Color::BLACK.with_alpha(0.5)))));
+}
+
+fn despawn_death_screen(
+    mut commands: Commands,
+    death_screen: Query<Entity, With<DeathScreen>>,
+) {
+    for death_screen in death_screen.iter() {
+        commands.entity(death_screen).despawn();
+    }
+}
+
+fn handle_input(
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+    asset_server: Res<AssetServer>,
+    mut commands: Commands,
+    mut score: ResMut<ScoreBoard>,
+    death_screen: Query<Entity, With<DeathScreen>>,
+    pipes: Query<Entity, With<PipeStack>>,
+    mut player: Query<
+        (
+            &mut Transform,
+            &mut Velocity,
+            &mut PhysicalTranslation,
+            &mut PreviousPhysicalTranslation,
+            Entity,
+        ),
+        With<Player>,
+    >,
+    mut next_state: ResMut<NextState<GameState>>,
 ) {
     /// Since Bevy's default 2D camera setup is scaled such that
     /// one unit is one pixel, you can think of this as
@@ -224,46 +284,62 @@ fn handle_input(
         velocity.0 = Vec3::new(0., SPEED, 0.);
         commands.spawn(AudioPlayer::new(asset_server.load("jump.wav")));
     } else if keyboard_input.just_released(KeyCode::KeyR) {
-        //delete all pipestacks
-        for pipe in pipes.iter() {
-            commands.entity(pipe).despawn();
-        }
-        // reset player by recreating it
-        commands.entity(player.single().unwrap().4).despawn();
-        create_player(&mut commands, &asset_server);
-
-        //reset score
-        score.passed_pipes = 0;
-        running.0 = true;
+        reinit_game(asset_server, commands, score, pipes, player, next_state);
+    } else if keyboard_input.just_pressed(KeyCode::Enter) {
+        next_state.set(GameState::Paused);
     }
+}
+
+fn handle_input_unpause(
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+    mut next_state: ResMut<NextState<GameState>>,
+) {
+    /// Since Bevy's default 2D camera setup is scaled such that
+    /// one unit is one pixel, you can think of this as
+    /// "How many pixels per second should the player move?"
+    const SPEED: f32 = 210.0;
+
     if keyboard_input.just_pressed(KeyCode::Enter) {
-        paused.0 = !paused.0;
+        next_state.set(GameState::InGame);
+    }
+}
+
+fn handle_input_when_dead(
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+    mut next_state: ResMut<NextState<GameState>>,
+) {
+    // Game over screen, show score, show instructions to restart
+
+    if keyboard_input.just_released(KeyCode::KeyR) {
+        next_state.set(GameState::InitGame);
     }
 }
 
 fn move_pipe(
-    mut query: Query<&mut Transform, With<PipeStack>>,
+    mut query: Query<(&mut Transform, Entity), With<PipeStack>>,
     fixed_time: Res<Time<Fixed>>,
-    running: Res<Running>,
     mut score: ResMut<ScoreBoard>,
+    mut commands: Commands,
 ) {
-    if running.0 {
-        for mut transform in query.iter_mut() {
-            let initial_position = transform.translation.x;
-            transform.translation.x -= 100.0 * fixed_time.delta_secs();
-            if initial_position > 0. && transform.translation.x <= 0. {
-                score.passed_pipes += 1;
-                println!("Passed: {}", score.passed_pipes);
-                dbg!(score.passed_pipes);
-            }
+    for (mut transform, pipe_stack_ent) in query.iter_mut() {
+        let initial_position = transform.translation.x;
+        transform.translation.x -= 100.0 * fixed_time.delta_secs();
+        if initial_position > 0. && transform.translation.x <= 0. {
+            score.passed_pipes += 1;
+            println!("Passed: {}", score.passed_pipes);
+            dbg!(score.passed_pipes);
+        }
+
+        if transform.translation.x < -2000.0 {
+            commands.entity(pipe_stack_ent).despawn()
         }
     }
 }
 
 fn check_collision(
-    mut running: ResMut<Running>,
     pipe_stack_transforms_query_factory_abstract_visitor: Query<&mut Transform, With<PipeStack>>,
     player: Query<&Transform, (With<Player>, Without<PipeStack>)>,
+    mut next_state: ResMut<NextState<GameState>>,
 ) {
     let player_transform = player.single().expect("No player found");
     // TODO: Factor out this constante
@@ -310,8 +386,7 @@ fn check_collision(
         let player_top = player_transform.translation.y + half_height;
         let ingap = gap_top > player_top && gap_bottom < player_bottom;
         if !ingap {
-            //freeze the game
-            running.0 = false;
+            next_state.set(GameState::DeathScreen);
         }
     }
 }
@@ -327,12 +402,16 @@ fn spawn_pipes(
         return;
     }
 
+    spawn_pipe_at(600.0, &mut commands, asset_server);
+}
+
+fn spawn_pipe_at(x: f32, commands: &mut Commands, asset_server: Res<AssetServer>) {
     let mut rng = rand::rng();
     let gap_y_center = rng.random::<f32>() * 500.0 - 250.0;
 
     commands.spawn((
         PipeStack,
-        Transform::from_translation(Vec3::new(600.0, gap_y_center, 0.0)),
+        Transform::from_translation(Vec3::new(x, gap_y_center, 0.0)),
         Visibility::default(),
         children![
             (
