@@ -164,6 +164,9 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>, mut timer: ResM
     timer.0.tick(std::time::Duration::from_secs_f32(1.8));
 }
 
+/**
+ * Calculation of new velocity and stuff
+ */
 fn advance_physics(
     fixed_time: Res<Time<Fixed>>,
     mut query: Query<(
@@ -460,6 +463,9 @@ fn update_score(mut query: Query<&mut Text, With<ScoreText>>, score_board: Res<S
     }
 }
 
+/**
+ * Allows the player to wrap around the screen top and bottom
+ */
 fn replace_player(mut query: Query<&mut PhysicalTranslation, With<Player>>) {
     let mut player_transform = query.single_mut().unwrap();
     if player_transform.0.y < -500.0 {
