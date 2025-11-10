@@ -35,6 +35,8 @@ fn main() {
         .add_systems(OnEnter(GameState::InitGame), reinit_game)
         .add_systems(OnEnter(GameState::DeathScreen), show_game_over_screen)
         .add_systems(OnExit(GameState::DeathScreen), despawn_death_screen)
+        .add_systems(OnEnter(GameState::Paused), show_pause_screen)
+        .add_systems(OnExit(GameState::Paused), despawn_pause_screen)
         .add_systems(Startup, setup)
         .add_systems(
             FixedUpdate,
@@ -93,6 +95,10 @@ struct ScoreText;
 struct Player;
 #[derive(Debug, Component, Clone, Copy, PartialEq, Default)]
 struct DeathScreen;
+#[derive(Debug, Component, Clone, Copy, PartialEq, Default)]
+struct DeathText;
+#[derive(Debug, Component, Clone, Copy, PartialEq, Default)]
+struct PauseScreen;
 
 /// The actual position of the player in the physics simulation.
 /// This is separate from the `Transform`, which is merely a visual representation.
@@ -211,7 +217,7 @@ fn reinit_game(
     mut commands: Commands,
     mut score: ResMut<ScoreBoard>,
     pipes: Query<Entity, With<PipeStack>>,
-    mut player: Query<
+    player: Query<
         (
             &mut Transform,
             &mut Velocity,
@@ -238,21 +244,106 @@ fn reinit_game(
     next_state.set(GameState::InGame);
 }
 
-fn show_game_over_screen(mut commands: Commands, mut score: ResMut<ScoreBoard>, window: Query<&Window>) {
+fn show_pause_screen(mut commands: Commands, asset_server: Res<AssetServer>) {
+    commands.spawn((
+        PauseScreen,
+        Text("PAUSED".to_owned()),
+        TextFont::from_font(asset_server.load("ComicNeue-Regular.ttf")).with_font_size(42.0),
+        //TextLayout::new(JustifyText::Left, linebreak),
+        //BackgroundColor(Color::srgb(0.8 - j as f32 * 0.2, 0., 0.)),
+        Node {
+            margin: UiRect::AUTO,
+            ..default()
+        },
+    ));
+}
+
+fn despawn_pause_screen(mut commands: Commands, pause_screen: Query<Entity, With<PauseScreen>>) {
+    for pause_screen in pause_screen.iter() {
+        commands.entity(pause_screen).despawn();
+    }
+}
+
+fn show_game_over_screen(
+    mut commands: Commands,
+    mut _score: ResMut<ScoreBoard>,
+    asset_server: Res<AssetServer>,
+) {
     // draw a transparent black rectangle
-    let resolution = &window.single().unwrap().resolution;
     let rect = Node {
         width: Val::Percent(100.0),
         height: Val::Percent(100.0),
         ..Default::default()
     };
-    commands.spawn((DeathScreen, (rect, Transform::default(), Visibility::default(), BackgroundColor(Color::BLACK.with_alpha(0.5)))));
+    commands.spawn((
+        DeathScreen,
+        (
+            rect,
+            Transform::default(),
+            Visibility::default(),
+            BackgroundColor(Color::BLACK.with_alpha(0.5)),
+        ),
+    ));
+    commands.spawn(AudioPlayer::new(asset_server.load("hahaha.ogg")));
+
+    // TODO: Show score
+
+    commands.spawn((
+        Node {
+            width: Val::Percent(100.0),
+            height: Val::Auto,
+            flex_direction: FlexDirection::Column,
+            justify_content: JustifyContent::Center,
+            margin: UiRect::AUTO,
+            ..Default::default()
+        },
+        children![
+            (
+                DeathText,
+                DeathScreen,
+                Text(
+                    "Oh no! TypeScript won't be written in Rust, they will use Go instead."
+                        .to_owned()
+                ),
+                TextFont::from_font(asset_server.load("ComicNeue-Regular.ttf"))
+                    .with_font_size(23.0),
+                //TextLayout::new(JustifyText::Left, linebreak),
+                //BackgroundColor(Color::srgb(0.8 - j as f32 * 0.2, 0., 0.)),
+                Node {
+                    margin: UiRect::AUTO,
+                    ..default()
+                },
+            ),
+            (
+                DeathText,
+                DeathScreen,
+                Text("Press R to restart".to_owned()),
+                TextFont::from_font(asset_server.load("ComicNeue-Regular.ttf"))
+                    .with_font_size(16.0),
+                //TextLayout::new(JustifyText::Left, linebreak),
+                //BackgroundColor(Color::srgb(0.8 - j as f32 * 0.2, 0., 0.)),
+                Node {
+                    margin: UiRect::AUTO,
+                    ..default()
+                }
+            )
+        ],
+    ));
+
+    commands.spawn((
+        DeathScreen,
+        ImageNode::new(asset_server.load("the-devil.png")),
+        Node {
+            bottom: Val::Px(10.),
+            right: Val::Px(10.),
+            width: Val::Px(300.),
+            position_type: PositionType::Absolute,
+            ..default()
+        },
+    ));
 }
 
-fn despawn_death_screen(
-    mut commands: Commands,
-    death_screen: Query<Entity, With<DeathScreen>>,
-) {
+fn despawn_death_screen(mut commands: Commands, death_screen: Query<Entity, With<DeathScreen>>) {
     for death_screen in death_screen.iter() {
         commands.entity(death_screen).despawn();
     }
@@ -262,8 +353,7 @@ fn handle_input(
     keyboard_input: Res<ButtonInput<KeyCode>>,
     asset_server: Res<AssetServer>,
     mut commands: Commands,
-    mut score: ResMut<ScoreBoard>,
-    death_screen: Query<Entity, With<DeathScreen>>,
+    score: ResMut<ScoreBoard>,
     pipes: Query<Entity, With<PipeStack>>,
     mut player: Query<
         (
@@ -297,11 +387,6 @@ fn handle_input_unpause(
     keyboard_input: Res<ButtonInput<KeyCode>>,
     mut next_state: ResMut<NextState<GameState>>,
 ) {
-    /// Since Bevy's default 2D camera setup is scaled such that
-    /// one unit is one pixel, you can think of this as
-    /// "How many pixels per second should the player move?"
-    const SPEED: f32 = 210.0;
-
     if keyboard_input.just_pressed(KeyCode::Enter) {
         next_state.set(GameState::InGame);
     }
