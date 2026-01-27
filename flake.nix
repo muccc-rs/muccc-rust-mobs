@@ -53,6 +53,8 @@
                       openssl
                       zlib
                       rust-analyzer
+                      mob
+                      neovim
                     ]
                     ++ (lib.optionals stdenv.hostPlatform.isLinux [
                       alsa-lib
