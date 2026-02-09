@@ -9,9 +9,20 @@
 Line 2
 ]===]
                   
-print('Hello world')
+
+break
+while nil do
+	break
+end
+return nil, nil;
+
+-- print([[Hello world]])
 
 
 
 
-local string = "string"
+-- local string = [[string]] .. [=[      ]=]
+
+-- k = DCIXX -- Very nice
+
+-- local meaning_of_life = 21 * 2 - XI
