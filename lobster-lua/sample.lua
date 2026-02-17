@@ -16,7 +16,16 @@ while nil do
 end
 return nil, nil;
 
--- print([[Hello world]])
+do 
+	break
+	return [===[ Multiline
+
+Line 2
+]===]
+end
+
+var = [[Hello]]
+print([[Hello world]], MIMIMIMIMI)
 
 
 

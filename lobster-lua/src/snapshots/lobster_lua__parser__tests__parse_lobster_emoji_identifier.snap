@@ -1,0 +1,9 @@
+---
+source: src/parser.rs
+assertion_line: 308
+expression: expr
+---
+- Assignment:
+    variable: 🦞
+    value:
+      Numeral: 1

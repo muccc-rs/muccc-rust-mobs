@@ -1,4 +1,3 @@
-
 #[expect(dead_code)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum Token {
@@ -42,7 +41,6 @@ pub enum Token {
     TripleDot,
 }
 
-#[expect(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq, Copy)]
 pub enum Keyword {
     // Variables
@@ -146,13 +144,13 @@ impl Tokenizer {
 
     fn check_for_identifier(&mut self) -> Option<String> {
         if let Some(c) = self.remaining().chars().next() {
-            if !c.is_alphabetic() {
+            if !c.is_alphabetic() && !is_emoji(c) {
                 return None;
             }
             let last_idx = self
                 .remaining()
-                .find(|c: char| !(c.is_alphanumeric() || c == '_'))
-                .expect("todo");
+                .find(|c: char| !(c.is_alphanumeric() || c == '_' || is_emoji(c)))
+                .unwrap_or(self.remaining().len());
             let result = Some(self.remaining()[..last_idx].to_string());
             self.pos += last_idx;
             result
@@ -165,7 +163,7 @@ impl Tokenizer {
         let non_numeric_idx = self
             .remaining()
             .find(|c: char| !c.is_numeric())
-            .expect("TODO");
+            .unwrap_or(self.remaining().len());
         if non_numeric_idx == 0 {
             return None;
         }
@@ -217,6 +215,20 @@ impl Tokenizer {
 
         Err("Unhappy?".to_owned())
     }
+}
+
+fn is_emoji(c: char) -> bool {
+    // Covers common emoji ranges including emoticons, symbols, and supplemental symbols
+    matches!(c as u32,
+        0x1F600..=0x1F64F | // Emoticons
+        0x1F300..=0x1F5FF | // Misc Symbols and Pictographs
+        0x1F680..=0x1F6FF | // Transport and Map
+        0x1F900..=0x1F9FF | // Supplemental Symbols and Pictographs
+        0x1FA00..=0x1FA6F | // Chess Symbols
+        0x1FA70..=0x1FAFF | // Symbols and Pictographs Extended-A
+        0x2600..=0x26FF   | // Misc symbols
+        0x2700..=0x27BF     // Dingbats
+    )
 }
 
 fn roman_number(s: &str) -> Option<i64> {
@@ -282,6 +294,7 @@ const MAPPING: &[(&str, Token)] = &[
     ("/", Token::Slash),
     (",", Token::Comma),
     (";", Token::Semicolon),
+    ("^", Token::Caret),
 ];
 
 const KEYWORDS: &[(&str, Keyword)] = &[
@@ -338,13 +351,11 @@ mod tests {
             (20, "XX"),
             (21, "XXI"),
             (22, "XXII"),
-
             // v- real shit
             (4, "IVX"),
             (19, "IXX"),
             (10, "IXI"),
             (6, "IIIIII"),
-
             // v- no, _this_ is the reeeeeeal shit
             (4997, "MIMIMIMIMI"),
         ];

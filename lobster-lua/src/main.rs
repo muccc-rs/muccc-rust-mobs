@@ -5,8 +5,8 @@ use std::fs::read_to_string;
 use crate::parser::LobsterParser;
 use crate::tokenizer::{Token, Tokenizer};
 
-mod tokenizer;
 mod parser;
+mod tokenizer;
 
 fn main() {
     let source = read_to_string("sample.lua").expect("todo");
@@ -20,6 +20,6 @@ fn main() {
         }
     }
 
-    let mut parser = LobsterParser::new(source);
+    let parser = LobsterParser::new(source);
     dbg!(parser.parse());
 }

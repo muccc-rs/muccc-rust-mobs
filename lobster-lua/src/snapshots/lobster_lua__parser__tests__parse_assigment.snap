@@ -1,0 +1,8 @@
+---
+source: src/parser.rs
+expression: expr
+---
+- Assignment:
+    variable: foobar
+    value:
+      Numeral: 1

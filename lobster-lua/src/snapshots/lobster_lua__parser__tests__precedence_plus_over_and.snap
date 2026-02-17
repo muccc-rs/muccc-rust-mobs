@@ -1,0 +1,19 @@
+---
+source: src/parser.rs
+assertion_line: 329
+expression: expr
+---
+- Assignment:
+    variable: x
+    value:
+      BinOp:
+        op: And
+        lhs:
+          BinOp:
+            op: Plus
+            lhs:
+              Numeral: 1
+            rhs:
+              Numeral: 2
+        rhs:
+          Numeral: 3

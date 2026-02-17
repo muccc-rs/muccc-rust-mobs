@@ -1,0 +1,9 @@
+---
+source: src/parser.rs
+expression: expr
+---
+- FunctionCall:
+    function_name: frobnicate
+    args:
+      - Numeral: 22
+      - String: Foo Bar
