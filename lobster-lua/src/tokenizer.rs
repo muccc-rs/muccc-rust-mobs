@@ -285,6 +285,8 @@ fn roman_number(s: &str) -> Option<i64> {
 // sorted from long to short for greedy tokenizing
 const MAPPING: &[(&str, Token)] = &[
     ("..", Token::DoubleDot),
+    ("==", Token::DoubleEqualsSign),
+    ("~=", Token::TildeEqualsSign),
     ("(", Token::ParOpen),
     (")", Token::ParClose),
     ("=", Token::Equals),
@@ -295,6 +297,7 @@ const MAPPING: &[(&str, Token)] = &[
     (",", Token::Comma),
     (";", Token::Semicolon),
     ("^", Token::Caret),
+    (">", Token::Gt),
 ];
 
 const KEYWORDS: &[(&str, Keyword)] = &[

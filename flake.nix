@@ -55,6 +55,7 @@
                       rust-analyzer
                       mob
                       neovim
+                      git-lfs
                     ]
                     ++ (lib.optionals stdenv.hostPlatform.isLinux [
                       alsa-lib

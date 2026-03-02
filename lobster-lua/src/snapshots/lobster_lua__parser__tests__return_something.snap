@@ -1,0 +1,7 @@
+---
+source: src/parser.rs
+assertion_line: 411
+expression: result
+---
+- Return:
+    - Numeral: 42

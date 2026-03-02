@@ -1,0 +1,18 @@
+---
+source: src/parser.rs
+expression: result
+---
+- If:
+    cond: Nil
+    then:
+      - Break
+    else:
+      - If:
+          cond: Nil
+          then:
+            - Break
+            - Break
+          else:
+            - Break
+            - Break
+            - Break

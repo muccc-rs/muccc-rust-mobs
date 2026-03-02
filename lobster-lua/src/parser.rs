@@ -1,3 +1,5 @@
+#![allow(unused)] // TODO
+
 use crate::tokenizer::{Keyword, Token, Tokenizer};
 
 #[derive(Debug, serde::Serialize)]
@@ -19,6 +21,11 @@ pub enum Stmt {
         function_name: String,
         args: Vec<Expr>,
     },
+    If {
+        cond: Expr,
+        then: Vec<Stmt>,
+        r#else: Vec<Stmt>, 
+    },
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -33,7 +40,15 @@ pub enum Expr {
         rhs: Box<Expr>,
     },
     Var(String),
-    FunctionCall{function_name: String, args: Vec<Expr>},
+    FunctionCall {
+        function_name: Box<Expr>,
+        args: Vec<Expr>,
+    },
+    #[expect(dead_code)]
+    FunctionDef {
+        // TODO: args
+        body: Vec<Stmt>,
+    },
 }
 
 impl Expr {
@@ -50,7 +65,18 @@ impl Expr {
                 rhs.to_s_expr()
             ),
             Expr::Var(name) => name.to_string(),
-            Expr::FunctionCall { function_name, args } => format!("({} {})", function_name, args.into_iter().map(|e| e.to_s_expr()).collect::<Vec<_>>().join(" "))
+            Expr::FunctionCall {
+                function_name,
+                args,
+            } => format!(
+                "(call {} {})",
+                function_name.to_s_expr(),
+                args.into_iter()
+                    .map(|e| e.to_s_expr())
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            ),
+            Expr::FunctionDef { body: _ } => "(fn () <TODO: body>)".to_string(),
         }
     }
 }
@@ -168,8 +194,32 @@ impl LobsterParser {
 
     fn parse_block(&mut self) -> Vec<Stmt> {
         let mut stmt_list = vec![];
-        while let Some(next_stmt) = self.parse_stmt() {
-            stmt_list.push(next_stmt);
+        loop {
+            if let Token::Keyword(Keyword::Return) = self.current_tok {
+                self.advance();
+                let e = match self.parse_expr() {
+                    None => {
+                        stmt_list.push(Stmt::Return(vec![]));
+                        break;
+                    }
+                    Some(e) => e,
+                };
+                let mut values = vec![e];
+                while self.current_tok == Token::Comma {
+                    self.advance();
+                    values.push(self.parse_expr().expect("todo"));
+                }
+                if self.current_tok == Token::Semicolon {
+                    self.advance();
+                }
+                stmt_list.push(Stmt::Return(values));
+                break;
+            }
+            if let Some(next_stmt) = self.parse_stmt() {
+                stmt_list.push(next_stmt);
+            } else {
+                break;
+            }
         }
         stmt_list
     }
@@ -222,17 +272,48 @@ impl LobsterParser {
                 self.expect(&Token::Keyword(Keyword::End));
                 Some(Stmt::DoEnd { body: block })
             }
-            Token::Keyword(Keyword::Return) => {
+            Token::Keyword(Keyword::If) => {
                 self.advance();
-                let mut values = vec![self.parse_expr().expect("todo")];
-                while self.current_tok == Token::Comma {
+                let cond = self.parse_expr().expect("todo");
+                self.expect(&Token::Keyword(Keyword::Then));
+                let then = self.parse_block();
+
+                let mut whole = Stmt::If {
+                    cond,
+                    then,
+                    r#else: vec![],
+                };
+                let Stmt::If { r#else: else_placeholder, .. } = &mut whole else { unreachable!() };
+                let mut else_placeholder = else_placeholder;
+
+                while self.current_tok == Token::Keyword(Keyword::ElseIf) {
                     self.advance();
-                    values.push(self.parse_expr().expect("todo"));
+                    let cond = self.parse_expr().expect("todo");
+                    self.expect(&Token::Keyword(Keyword::Then));
+                    let then = self.parse_block();
+
+                    *else_placeholder = vec![Stmt::If {
+                        cond,
+                        then,
+                        r#else: vec![],
+                    }];
+                    let [Stmt::If { r#else: else_placeholder2, .. }] = &mut else_placeholder[..] else { unreachable!() };
+                    else_placeholder = else_placeholder2;
                 }
-                if self.current_tok == Token::Semicolon {
-                    self.advance();
+
+                match self.current_tok {
+                    Token::Keyword(Keyword::End) => {
+                        self.advance();
+                    },
+                    Token::Keyword(Keyword::Else) => {
+                        self.advance();
+                        let else_block = self.parse_block();
+                        self.expect(&Token::Keyword(Keyword::End));
+                        *else_placeholder = else_block;
+                    }
+                    _ => todo!(),
                 }
-                Some(Stmt::Return(values))
+                Some(whole)
             }
             Token::Ident(ident) => {
                 let ident = ident.clone();
@@ -271,6 +352,7 @@ impl LobsterParser {
         }
     }
 
+    #[track_caller]
     fn expect(&mut self, tok: &Token) {
         if &self.current_tok == tok {
             self.advance();
@@ -280,51 +362,62 @@ impl LobsterParser {
     }
 
     fn parse_atomic_expr(&mut self) -> Option<Expr> {
-        match &self.current_tok {
+        let expr = match &self.current_tok {
+            Token::ParOpen => {
+                self.advance();
+                let res = self.parse_expr().expect("TODO");
+                self.expect(&Token::ParClose);
+                res
+            }
             Token::Keyword(Keyword::Nil) => {
                 self.advance();
-                Some(Expr::Nil)
+                Expr::Nil
             }
             &Token::NumberLiteral(num) => {
                 self.advance();
-                Some(Expr::Numeral(num))
+                Expr::Numeral(num)
             }
             &Token::Keyword(Keyword::True) => {
                 self.advance();
-                Some(Expr::Boolean(true))
+                Expr::Boolean(true)
             }
             &Token::Keyword(Keyword::False) => {
                 self.advance();
-                Some(Expr::Boolean(false))
+                Expr::Boolean(false)
             }
             Token::StringLiteral(s) => {
                 let s = s.clone();
                 self.advance();
-                Some(Expr::String(s))
+                Expr::String(s)
             }
             Token::Ident(name) => {
                 let name = name.clone();
                 self.advance();
-                if self.current_tok == Token::ParOpen {
+                Expr::Var(name)
+            }
+            Token::Keyword(Keyword::Function) => todo!(),
+            _ => return None,
+        };
+        eprintln!("expr {expr:?} — {:?}", self.current_tok);
+        if self.current_tok == Token::ParOpen {
+            self.advance();
+            // function call
+            let mut args = vec![];
+            while let Some(arg) = self.parse_expr() {
+                args.push(arg);
+                if self.current_tok == Token::Comma {
                     self.advance();
-                    // function call
-                    let mut args = vec![];
-                    while let Some(arg) = self.parse_expr() {
-                        args.push(arg);
-                        if self.current_tok == Token::Comma {
-                            self.advance();
-                        } else {
-                            break;
-                        }
-                    }
-                    self.expect(&Token::ParClose);
-                    Some(Expr::FunctionCall{function_name: name, args})
                 } else {
-                    // variable
-                    Some(Expr::Var(name))
+                    break;
                 }
             }
-            _ => None,
+            self.expect(&Token::ParClose);
+            Some(Expr::FunctionCall {
+                function_name: Box::new(expr),
+                args,
+            })
+        } else {
+            Some(expr)
         }
     }
 
@@ -407,4 +500,10 @@ mod tests {
     parse_test!(test_precedence_plus_left_associative, "x = 1 + 2 + 3");
     // Left associativity of `and`: 1 and 2 and 3 => (1 and 2) and 3
     parse_test!(test_precedence_and_left_associative, "x = 1 and 2 and 3");
+
+    parse_test!(return_something, "return 42");
+    parse_test!(return_nothing, "return");
+    parse_test!(return_inside_block, "do break return [[]] end");
+
+    parse_test!(break_break_mic_check_do_you_read, "if nil then break elseif nil then break break else break break break end");
 }

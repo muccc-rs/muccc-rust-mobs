@@ -1,0 +1,6 @@
+---
+source: src/parser.rs
+assertion_line: 437
+expression: result
+---
+- Return: []
