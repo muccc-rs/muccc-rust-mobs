@@ -2,7 +2,7 @@
 
 use crate::tokenizer::{Keyword, Token, Tokenizer};
 
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, serde::Serialize,Clone,PartialEq, Eq)]
 pub enum Stmt {
     Break,
     Return(Vec<Expr>),
@@ -24,11 +24,11 @@ pub enum Stmt {
     If {
         cond: Expr,
         then: Vec<Stmt>,
-        r#else: Vec<Stmt>, 
+        r#else: Vec<Stmt>,
     },
 }
 
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, serde::Serialize,Clone,PartialEq, Eq)]
 pub enum Expr {
     Nil,
     Numeral(i64),
@@ -46,7 +46,7 @@ pub enum Expr {
     },
     #[expect(dead_code)]
     FunctionDef {
-        // TODO: args
+        arguments: Vec<String>,
         body: Vec<Stmt>,
     },
 }
@@ -76,7 +76,7 @@ impl Expr {
                     .collect::<Vec<_>>()
                     .join(" ")
             ),
-            Expr::FunctionDef { body: _ } => "(fn () <TODO: body>)".to_string(),
+            Expr::FunctionDef { arguments:_, body: _ } => "(fn () <TODO: body>)".to_string(),
         }
     }
 }
@@ -88,7 +88,7 @@ pub struct LobsterParser {
     current_pos: usize,
 }
 
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, serde::Serialize,Copy,Clone,PartialEq, Eq)]
 pub enum BinOp {
     Plus,
     Minus,
@@ -283,7 +283,13 @@ impl LobsterParser {
                     then,
                     r#else: vec![],
                 };
-                let Stmt::If { r#else: else_placeholder, .. } = &mut whole else { unreachable!() };
+                let Stmt::If {
+                    r#else: else_placeholder,
+                    ..
+                } = &mut whole
+                else {
+                    unreachable!()
+                };
                 let mut else_placeholder = else_placeholder;
 
                 while self.current_tok == Token::Keyword(Keyword::ElseIf) {
@@ -297,14 +303,22 @@ impl LobsterParser {
                         then,
                         r#else: vec![],
                     }];
-                    let [Stmt::If { r#else: else_placeholder2, .. }] = &mut else_placeholder[..] else { unreachable!() };
+                    let [
+                        Stmt::If {
+                            r#else: else_placeholder2,
+                            ..
+                        },
+                    ] = &mut else_placeholder[..]
+                    else {
+                        unreachable!()
+                    };
                     else_placeholder = else_placeholder2;
                 }
 
                 match self.current_tok {
                     Token::Keyword(Keyword::End) => {
                         self.advance();
-                    },
+                    }
                     Token::Keyword(Keyword::Else) => {
                         self.advance();
                         let else_block = self.parse_block();
@@ -395,7 +409,26 @@ impl LobsterParser {
                 self.advance();
                 Expr::Var(name)
             }
-            Token::Keyword(Keyword::Function) => todo!(),
+            Token::Keyword(Keyword::Function) => {
+                self.advance();
+                self.expect(&Token::ParOpen);
+
+                let mut arguments = vec![];
+                if self.current_tok != Token::ParClose { 
+                    arguments.push(self.parse_argument());
+                    loop {
+                        if self.current_tok == Token::ParClose { break; }
+                        self.expect(&Token::Comma);
+                        arguments.push(self.parse_argument());
+                    }
+                }
+                self.expect(&Token::ParClose); 
+
+                let body = self.parse_block();
+                self.expect(&Token::Keyword(Keyword::End));
+
+                Expr::FunctionDef { arguments, body }
+            }
             _ => return None,
         };
         eprintln!("expr {expr:?} — {:?}", self.current_tok);
@@ -442,6 +475,15 @@ impl LobsterParser {
 
     fn parse_expr(&mut self) -> Option<Expr> {
         self.parse_expr_inner(0)
+    }
+
+    fn parse_argument(&mut self) -> String {
+        let arg = match &self.current_tok {
+            Token::Ident(name) => name.clone(),
+            _ => panic!("Expected identifier, got {:?}", self.current_tok),
+        };
+        self.advance();
+        arg
     }
 }
 
@@ -505,5 +547,8 @@ mod tests {
     parse_test!(return_nothing, "return");
     parse_test!(return_inside_block, "do break return [[]] end");
 
-    parse_test!(break_break_mic_check_do_you_read, "if nil then break elseif nil then break break else break break break end");
+    parse_test!(
+        break_break_mic_check_do_you_read,
+        "if nil then break elseif nil then break break else break break break end"
+    );
 }

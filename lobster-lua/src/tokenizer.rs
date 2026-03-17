@@ -1,6 +1,7 @@
 #[expect(dead_code)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum Token {
+    #[expect(clippy::upper_case_acronyms)]
     EOF,
     Keyword(Keyword),
     StringLiteral(String),

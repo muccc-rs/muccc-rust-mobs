@@ -10,19 +10,7 @@ Line 2
 ]===]
                   
 
-break
-while nil do
-	break
-end
 -- return nil, nil;
-
-do 
-	break
-	return [===[ Multiline
-
-Line 2
-]===]
-end
 
 foo = 1
 bar = XII
@@ -80,8 +68,26 @@ while y ~= size do
 	y = y + 1
 end
 
+out = [[here brother]]
+
+print([[are you alive?]])
 foobar = [[foo]] .. [[bar]]
 
+
+my_function = function ()
+	print([[hello from my function]])
+end
+my_function()
+
+c = 0
+
+add = function (a, b)
+  c = a + b
+end
+
+add(1,2)
+
+print(c)
 -- local string = [[string]] .. [=[      ]=]
 
 -- k = DCIXX -- Very nice
