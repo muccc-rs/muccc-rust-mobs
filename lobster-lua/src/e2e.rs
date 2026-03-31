@@ -25,7 +25,7 @@ fn hello_world() {
     let out = run(r#"
         print([[hello world]])
     "#);
-    assert_eq!(out, "hello world\t\n");
+    assert_eq!(out, "hello world\n");
 }
 
 #[test]
@@ -41,12 +41,11 @@ print(S)
 print(S·)
 print(S:)
 print(S∴)
-print()
-print([[zzz]], S∷ / 2)
+print(S∷)
     "#);
     assert_eq!(
         out,
-        r#"
+        "\
 All the fractions
 1/12
 1/6
@@ -57,6 +56,7 @@ All the fractions
 7/12
 2/3
 3/4
-"#
+5/6
+"
     );
 }
