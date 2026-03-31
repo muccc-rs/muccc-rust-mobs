@@ -1,49 +1,74 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, process::Stdio};
 // decisions:
 // our lua starts at 0
 use std::fs::read_to_string;
 
 use crate::parser::{LobsterParser, Stmt};
 
+mod e2e;
+mod fraction;
 mod parser;
 mod tokenizer;
+
+use fraction::Fraction;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Value {
     Nil,
     Number(i64),
+    Fraction(Fraction),
     String(String),
     Bool(bool),
     Closure {
         params: Vec<String>,
         body: Vec<Stmt>,
+    },
+}
+
+impl std::fmt::Display for Value {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Value::Nil => write!(f, "nil"),
+            Value::Number(n) => write!(f, "{n}"),
+            Value::Fraction(n) => write!(f, "{n}"),
+            Value::String(s) => write!(f, "{s}"),
+            Value::Bool(b) => write!(f, "{b}"),
+            Value::Closure { params, body } => write!(f, "function"),
+        }
     }
 }
 
 impl Value {
+    fn as_fraction(&self) -> Result<Fraction, &'static str> {
+        match self {
+            Self::Number(n) => Ok(Fraction::new(*n, 1)),
+            Self::Fraction(f) => Ok(*f),
+            _ => Err("NOT FRACTIONABLE"),
+        }
+    }
+
     fn add(self, rhs: Self) -> Result<Value, &'static str> {
         match (self, rhs) {
             (Value::Number(l), Value::Number(r)) => Ok(Self::Number(l + r)),
-            _ => Err("PANIK"),
+            (lv, rv) => Ok(Value::Fraction(lv.as_fraction()? + rv.as_fraction()?)),
         }
     }
 
     fn sub(self, rhs: Self) -> Result<Value, &'static str> {
         match (self, rhs) {
             (Value::Number(l), Value::Number(r)) => Ok(Self::Number(l - r)),
-            _ => Err("PANIK"),
+            (lv, rv) => Ok(Value::Fraction(lv.as_fraction()? - rv.as_fraction()?)),
         }
     }
     fn div(self, rhs: Self) -> Result<Value, &'static str> {
         match (self, rhs) {
-            (Value::Number(l), Value::Number(r)) => Ok(Self::Number(l / r)),
-            _ => Err("PANIK"),
+            (lv, rv) => Ok(Value::Fraction(lv.as_fraction()? / rv.as_fraction()?)),
         }
     }
     fn mul(self, rhs: Self) -> Result<Value, &'static str> {
         match (self, rhs) {
             (Value::Number(l), Value::Number(r)) => Ok(Self::Number(l * r)),
-            _ => Err("PANIK"),
+            (lv, rv) => Ok(Value::Fraction(lv.as_fraction()? * rv.as_fraction()?)),
         }
     }
     fn exp(self, rhs: Self) -> Result<Value, &'static str> {
@@ -143,6 +168,7 @@ impl Value {
 }
 
 pub struct Context {
+    test_stdout: Option<String>,
     globals: HashMap<String, Value>,
     locals: Vec<HashMap<String, Value>>,
 }
@@ -151,7 +177,7 @@ impl Context {
     pub fn get(&self, name: &str) -> Option<Value> {
         for scope in self.locals.iter().rev() {
             if let Some(val) = scope.get(name) {
-                return Some(val.clone())
+                return Some(val.clone());
             }
         }
         self.globals.get(name).cloned()
@@ -184,13 +210,13 @@ fn main() {
     let ast = parser.parse();
 
     let globals: HashMap<String, Value> = Default::default();
-    let mut context: Context = Context { globals, locals: vec![HashMap::new()] };
+    let mut context: Context = Context {
+        test_stdout: None,
+        globals,
+        locals: vec![HashMap::new()],
+    };
 
-    run_block(&ast, &mut context); 
-
-    if let Value::String(s) = context.get("out").unwrap() {
-        println!("{s}");
-    }
+    run_block(&ast, &mut context);
 }
 
 fn run_block(stmts: &[parser::Stmt], context: &mut Context) {
@@ -201,11 +227,7 @@ fn run_block(stmts: &[parser::Stmt], context: &mut Context) {
                 let res = eval(value, context);
                 context.insert_global(variable.clone(), res);
             }
-            parser::Stmt::If {
-                cond,
-                then,
-                r#else,
-            } => {
+            parser::Stmt::If { cond, then, r#else } => {
                 if eval(cond, context) == Value::Bool(true) {
                     run_block(then, context);
                 } else {
@@ -216,7 +238,7 @@ fn run_block(stmts: &[parser::Stmt], context: &mut Context) {
                 while eval(cond, context) == Value::Bool(true) {
                     run_block(body, context)
                 }
-            },
+            }
             parser::Stmt::Break => todo!(),
             parser::Stmt::Return(exprs) => todo!(),
             parser::Stmt::DoEnd { body } => todo!(),
@@ -224,34 +246,51 @@ fn run_block(stmts: &[parser::Stmt], context: &mut Context) {
                 function_name,
                 args,
             } => {
-                let evaluated_args: Vec<_> = args.into_iter().map(|arg| eval(arg, context)).collect();
+                let evaluated_args: Vec<_> =
+                    args.into_iter().map(|arg| eval(arg, context)).collect();
+
                 if function_name == "print" {
-                    println!("{:?}", evaluated_args);
+                    let mut line = evaluated_args
+                        .iter()
+                        .map(|a| a.to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    line.push('\n');
+
+                    if let Some(test_stdout) = &mut context.test_stdout {
+                        test_stdout.push_str(&line);
+                    } else {
+                        print!("{line}");
+                    }
                 } else {
                     let function = context.get(function_name).expect("TODO");
                     match function {
                         Value::Closure { params, body } => {
                             context.enter_scope();
-                            assert_eq!(params.len(), args.len(), "calling with wrong number of parameters");
-                            for (param,arg) in params.iter().zip(evaluated_args) {
-                                context.insert_local(param.clone(),arg);
+                            assert_eq!(
+                                params.len(),
+                                args.len(),
+                                "calling with wrong number of parameters"
+                            );
+                            for (param, arg) in params.iter().zip(evaluated_args) {
+                                context.insert_local(param.clone(), arg);
                             }
                             run_block(&body.clone() /* TODO: get rid of clone */, context);
                             context.leave_scope();
                         }
-                        x => panic!("{x:?} is not callable")
+                        x => panic!("{x:?} is not callable"),
                     }
                 }
-            },
+            }
         }
     }
-
 }
 
 fn eval(expr: &parser::Expr, context: &mut Context) -> Value {
     match expr {
         parser::Expr::Nil => Value::Nil,
         parser::Expr::Numeral(i) => Value::Number(*i),
+        parser::Expr::Fraction(f) => Value::Fraction(*f),
         parser::Expr::Boolean(b) => Value::Bool(*b),
         parser::Expr::String(s) => Value::String(s.clone()),
         parser::Expr::BinOp { op, lhs, rhs } => {
@@ -293,10 +332,9 @@ fn eval(expr: &parser::Expr, context: &mut Context) -> Value {
             function_name,
             args,
         } => todo!(),
-        parser::Expr::FunctionDef { arguments, body } => 
-            Value::Closure {
-                params: arguments.clone(),
-                body: body.clone(),
-            }
+        parser::Expr::FunctionDef { arguments, body } => Value::Closure {
+            params: arguments.clone(),
+            body: body.clone(),
+        },
     }
 }

@@ -43,6 +43,7 @@ while i ~= 0 do
 	i = i - 1
 end
 
+--[====[
 out = [[]]
 size = IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII
 size = size / 2
@@ -67,12 +68,24 @@ while y ~= size do
 ]]
 	y = y + 1
 end
-
-out = [[here brother]]
+print(out)
+]====]
 
 print([[are you alive?]])
 foobar = [[foo]] .. [[bar]]
 
+print([[All the fractions]])
+print(·)
+print(:)
+print(∴)
+print(∷)
+print(⁙)
+print(S)
+print(S·)
+print(S:)
+print(S∴)
+print()
+print([[zzz]], S∷ / 2)
 
 my_function = function ()
 	print([[hello from my function]])
@@ -87,7 +100,16 @@ end
 
 add(1,2)
 
+add(·,2)
 print(c)
+add(2,·)
+print(c)
+add(·,·)
+
+print(c)
+
+
+
 -- local string = [[string]] .. [=[      ]=]
 
 -- k = DCIXX -- Very nice

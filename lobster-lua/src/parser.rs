@@ -1,6 +1,6 @@
 #![allow(unused)] // TODO
 
-use crate::tokenizer::{Keyword, Token, Tokenizer};
+use crate::{fraction::Fraction, tokenizer::{Keyword, Token, Tokenizer}};
 
 #[derive(Debug, serde::Serialize,Clone,PartialEq, Eq)]
 pub enum Stmt {
@@ -32,6 +32,7 @@ pub enum Stmt {
 pub enum Expr {
     Nil,
     Numeral(i64),
+    Fraction(Fraction),
     Boolean(bool),
     String(String),
     BinOp {
@@ -56,6 +57,7 @@ impl Expr {
         match self {
             Expr::Nil => "nil".to_string(),
             Expr::Numeral(x) => x.to_string(),
+            Expr::Fraction(f) => f.to_string(),
             Expr::Boolean(b) => b.to_string(),
             Expr::String(s) => format!("{s:?}"),
             Expr::BinOp { op, lhs, rhs } => format!(
@@ -390,6 +392,10 @@ impl LobsterParser {
             &Token::NumberLiteral(num) => {
                 self.advance();
                 Expr::Numeral(num)
+            }
+            &Token::FractionLiteral(num) => {
+                self.advance();
+                Expr::Fraction(num)
             }
             &Token::Keyword(Keyword::True) => {
                 self.advance();

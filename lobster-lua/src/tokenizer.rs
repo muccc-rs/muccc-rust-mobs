@@ -1,3 +1,5 @@
+use crate::fraction::Fraction;
+
 #[expect(dead_code)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum Token {
@@ -6,6 +8,7 @@ pub enum Token {
     Keyword(Keyword),
     StringLiteral(String),
     NumberLiteral(i64),
+    FractionLiteral(crate::Fraction),
     Ident(String),
     ParOpen,
     ParClose,
@@ -180,8 +183,18 @@ impl Tokenizer {
             return Ok((Token::EOF, self.pos));
         }
 
+        for (s, tok) in ROMAN_MAPPING {
+            if self.remaining().starts_with(s) {
+                self.pos += s.len();
+                return Ok((tok.clone(), self.pos - s.len()));
+            }
+        }
+
         let start_pos = self.pos;
         if let Some(identifier) = self.check_for_identifier() {
+            if identifier == "S" {
+                return Ok((Token::FractionLiteral(Fraction::new(1, 2)), start_pos));
+            }
             if let Some(roman) = roman_number(&identifier) {
                 return Ok((Token::NumberLiteral(roman), start_pos));
             }
@@ -299,6 +312,23 @@ const MAPPING: &[(&str, Token)] = &[
     (";", Token::Semicolon),
     ("^", Token::Caret),
     (">", Token::Gt),
+];
+
+const ROMAN_MAPPING: &[(&str, Token)] = &[
+    ("·", Token::FractionLiteral(Fraction::new_unreduced(1, 12))),
+    (":", Token::FractionLiteral(Fraction::new_unreduced(1, 6))),
+    ("∴", Token::FractionLiteral(Fraction::new_unreduced(1, 4))),
+    ("∷", Token::FractionLiteral(Fraction::new_unreduced(1, 3))),
+    ("⁙", Token::FractionLiteral(Fraction::new_unreduced(5, 12))),
+    // just 'S' is handled magically in the identifier parser
+    ("S·", Token::FractionLiteral(Fraction::new_unreduced(7, 12))),
+    ("S:", Token::FractionLiteral(Fraction::new_unreduced(2, 3))),
+    ("S∴", Token::FractionLiteral(Fraction::new_unreduced(3, 4))),
+    ("S∷", Token::FractionLiteral(Fraction::new_unreduced(5, 6))),
+    (
+        "S⁙",
+        Token::FractionLiteral(Fraction::new_unreduced(11, 12)),
+    ),
 ];
 
 const KEYWORDS: &[(&str, Keyword)] = &[
