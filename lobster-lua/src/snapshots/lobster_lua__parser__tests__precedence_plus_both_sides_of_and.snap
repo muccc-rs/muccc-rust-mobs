@@ -1,7 +1,6 @@
 ---
 source: src/parser.rs
-assertion_line: 338
-expression: expr
+expression: result
 ---
 - Assignment:
     variable: x
@@ -22,3 +21,4 @@ expression: expr
               Numeral: 3
             rhs:
               Numeral: 4
+    local: false

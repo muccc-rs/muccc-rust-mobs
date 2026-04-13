@@ -1,4 +1,4 @@
-use std::{collections::HashMap, process::Stdio};
+use std::collections::HashMap;
 // decisions:
 // our lua starts at 0
 use std::fs::read_to_string;
@@ -33,7 +33,7 @@ impl std::fmt::Display for Value {
             Value::Fraction(n) => write!(f, "{n}"),
             Value::String(s) => write!(f, "{s}"),
             Value::Bool(b) => write!(f, "{b}"),
-            Value::Closure { params, body } => write!(f, "function"),
+            Value::Closure { params, body: _ } => write!(f, "function {params:#?}"),
         }
     }
 }
@@ -167,13 +167,13 @@ impl Value {
     }
 }
 
-pub struct Context {
-    test_stdout: Option<String>,
+pub struct Context<T> {
+    stdout: T,
     globals: HashMap<String, Value>,
     locals: Vec<HashMap<String, Value>>,
 }
 
-impl Context {
+impl<T: std::io::Write> Context<T> {
     pub fn get(&self, name: &str) -> Option<Value> {
         for scope in self.locals.iter().rev() {
             if let Some(val) = scope.get(name) {
@@ -200,18 +200,14 @@ impl Context {
     }
 }
 
-pub struct StackFrame {
-    locals: HashMap<String, Value>,
-}
-
 fn main() {
     let source = read_to_string("sample.lua").expect("todo");
     let parser = LobsterParser::new(source);
     let ast = parser.parse();
 
     let globals: HashMap<String, Value> = Default::default();
-    let mut context: Context = Context {
-        test_stdout: None,
+    let mut context: Context<std::io::Stdout> = Context {
+        stdout: std::io::stdout(),
         globals,
         locals: vec![HashMap::new()],
     };
@@ -219,13 +215,21 @@ fn main() {
     run_block(&ast, &mut context);
 }
 
-fn run_block(stmts: &[parser::Stmt], context: &mut Context) {
+fn run_block<T: std::io::Write>(stmts: &[parser::Stmt], context: &mut Context<T>) -> Option<Value> {
     for stmt in stmts {
         // dbg!(stmt);
         match stmt {
-            parser::Stmt::Assignment { variable, value } => {
+            parser::Stmt::Assignment {
+                variable,
+                value,
+                local,
+            } => {
                 let res = eval(value, context);
-                context.insert_global(variable.clone(), res);
+                if *local {
+                    context.insert_local(variable.clone(), res);
+                } else {
+                    context.insert_global(variable.clone(), res);
+                }
             }
             parser::Stmt::If { cond, then, r#else } => {
                 if eval(cond, context) == Value::Bool(true) {
@@ -236,12 +240,16 @@ fn run_block(stmts: &[parser::Stmt], context: &mut Context) {
             }
             parser::Stmt::While { cond, body } => {
                 while eval(cond, context) == Value::Bool(true) {
-                    run_block(body, context)
+                    run_block(body, context);
                 }
             }
-            parser::Stmt::Break => todo!(),
-            parser::Stmt::Return(exprs) => todo!(),
-            parser::Stmt::DoEnd { body } => todo!(),
+            parser::Stmt::Break => return None,
+            parser::Stmt::Return(exprs) => {
+                let mut values: Vec<_> =
+                    exprs.into_iter().map(|expr| eval(expr, context)).collect();
+                return Some(values.remove(0));
+            }
+            parser::Stmt::DoEnd { body } => return run_block(body, context),
             parser::Stmt::FunctionCall {
                 function_name,
                 args,
@@ -257,11 +265,7 @@ fn run_block(stmts: &[parser::Stmt], context: &mut Context) {
                         .join(", ");
                     line.push('\n');
 
-                    if let Some(test_stdout) = &mut context.test_stdout {
-                        test_stdout.push_str(&line);
-                    } else {
-                        print!("{line}");
-                    }
+                    write!(context.stdout, "{line}").expect("write failed!");
                 } else {
                     let function = context.get(function_name).expect("TODO");
                     match function {
@@ -284,9 +288,10 @@ fn run_block(stmts: &[parser::Stmt], context: &mut Context) {
             }
         }
     }
+    None
 }
 
-fn eval(expr: &parser::Expr, context: &mut Context) -> Value {
+fn eval<T: std::io::Write>(expr: &parser::Expr, context: &mut Context<T>) -> Value {
     match expr {
         parser::Expr::Nil => Value::Nil,
         parser::Expr::Numeral(i) => Value::Number(*i),
@@ -331,7 +336,44 @@ fn eval(expr: &parser::Expr, context: &mut Context) -> Value {
         parser::Expr::FunctionCall {
             function_name,
             args,
-        } => todo!(),
+        } => {
+            let evaluated_args: Vec<_> = args.into_iter().map(|arg| eval(arg, context)).collect();
+
+            if function_name == "print" {
+                let mut line = evaluated_args
+                    .iter()
+                    .map(|a| a.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                line.push('\n');
+
+                write!(context.stdout, "{line}").expect("write failed!");
+                Value::Nil
+            } else {
+                let function = context.get(function_name).expect("TODO");
+                match function {
+                    Value::Closure { params, body } => {
+                        context.enter_scope();
+                        assert_eq!(
+                            params.len(),
+                            args.len(),
+                            "calling with wrong number of parameters"
+                        );
+                        for (param, arg) in params.iter().zip(evaluated_args) {
+                            context.insert_local(param.clone(), arg);
+                        }
+                        let return_val =
+                            run_block(&body.clone() /* TODO: get rid of clone */, context);
+                        context.leave_scope();
+                        match return_val {
+                            None => Value::Nil,
+                            Some(val) => val,
+                        }
+                    }
+                    x => panic!("{x:?} is not callable"),
+                }
+            }
+        }
         parser::Expr::FunctionDef { arguments, body } => Value::Closure {
             params: arguments.clone(),
             body: body.clone(),

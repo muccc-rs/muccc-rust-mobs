@@ -66,7 +66,7 @@ while y ~= size do
 	end
 	out = out .. [[
 ]]
-	y = y + 1
+y = y + 1
 end
 print(out)
 ]====]
@@ -92,6 +92,37 @@ my_function = function ()
 end
 my_function()
 
+function my_function_2 ()
+  print([[test]])
+end
+
+my_local = 0
+
+function my_function_2 ()
+  local my_local = 2
+  print(my_local)
+  print([[test]])
+end
+
+my_function_2()
+
+print(my_local)
+
+print([[Addition:]])
+print(1/3 + 1/2)
+
+print([[Returning:]])
+
+function my_function_3 ()
+  return [[something]]
+--  print ([[print after return]]) -- NO EARLY RETURN!!!
+end
+
+my_test_val = my_function_3 ()
+print ([[my test value after return:]])
+print (my_test_val)
+
+
 c = 0
 
 add = function (a, b)
@@ -108,7 +139,7 @@ add(·,·)
 
 print(c)
 
-
+print(1/2)
 
 -- local string = [[string]] .. [=[      ]=]
 

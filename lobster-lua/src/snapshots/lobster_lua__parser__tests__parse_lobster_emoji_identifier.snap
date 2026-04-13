@@ -1,9 +1,9 @@
 ---
 source: src/parser.rs
-assertion_line: 308
-expression: expr
+expression: result
 ---
 - Assignment:
     variable: 🦞
     value:
       Numeral: 1
+    local: false

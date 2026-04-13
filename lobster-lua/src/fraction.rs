@@ -1,5 +1,3 @@
-use std::ops::Add;
-
 use serde::Serialize;
 
 #[derive(PartialEq, Eq, Clone, Copy, Serialize)]
@@ -87,17 +85,23 @@ impl std::ops::Sub for Fraction {
 
 impl std::ops::Mul for Fraction {
     type Output = Self;
-    
+
     fn mul(self, rhs: Self) -> Self::Output {
-        Self::new(self.numerator * rhs.numerator, self.denominator * rhs.denominator)
+        Self::new(
+            self.numerator * rhs.numerator,
+            self.denominator * rhs.denominator,
+        )
     }
 }
 
 impl std::ops::Div for Fraction {
     type Output = Self;
-    
+
     fn div(self, rhs: Self) -> Self::Output {
-        Self::new(self.numerator * rhs.denominator, self.denominator * rhs.numerator)
+        Self::new(
+            self.numerator * rhs.denominator,
+            self.denominator * rhs.numerator,
+        )
     }
 }
 
@@ -156,8 +160,8 @@ mod tests {
 
     #[test]
     fn mul_test() {
-        let a = Fraction::new(1,2);
-        let b = Fraction::new(2,3);
+        let a = Fraction::new(1, 2);
+        let b = Fraction::new(2, 3);
 
         let res = a * b;
 

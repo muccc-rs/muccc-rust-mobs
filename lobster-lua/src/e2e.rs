@@ -1,3 +1,4 @@
+#![cfg(test)]
 use std::collections::HashMap;
 
 use crate::parser::LobsterParser;
@@ -9,15 +10,15 @@ fn run(source: &str) -> String {
 
     let globals: HashMap<String, Value> = Default::default();
 
-    let mut context: Context = Context {
-        test_stdout: Some(String::new()),
+    let mut context: Context<Vec<u8>> = Context {
+        stdout: Vec::new(),
         globals,
         locals: vec![HashMap::new()],
     };
 
     run_block(&ast, &mut context);
 
-    context.test_stdout.unwrap()
+    String::from_utf8(context.stdout).unwrap()
 }
 
 #[test]
