@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{any::Any, collections::HashMap};
 // decisions:
 // our lua starts at 0
 use std::fs::read_to_string;
@@ -12,7 +12,7 @@ mod tokenizer;
 
 use fraction::Fraction;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum Value {
     Nil,
     Number(i64),
@@ -23,6 +23,51 @@ pub enum Value {
         params: Vec<String>,
         body: Vec<Stmt>,
     },
+    Table(HashMap<Value, Value>),
+}
+
+impl PartialEq for Value {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Nil, Self::Nil) => true,
+            (Self::Nil, _) => false,
+            (Self::Number(l0), Self::Number(r0)) => l0 == r0,
+            (Self::Number(_), _) => false,
+            (Self::Fraction(l0), Self::Fraction(r0)) => l0 == r0,
+            (Self::Fraction(_), _) => false,
+            (Self::String(l0), Self::String(r0)) => l0 == r0,
+            (Self::String(_), _) => false,
+            (Self::Bool(l0), Self::Bool(r0)) => l0 == r0,
+            (Self::Bool(_), _) => false,
+            (
+                Self::Closure {
+                    params: l_params,
+                    body: l_body,
+                },
+                Self::Closure {
+                    params: r_params,
+                    body: r_body,
+                },
+            ) => l_params == r_params && l_body == r_body,
+            (Self::Closure { .. }, _) => false,
+            (Self::Table(_), _) => todo!("No time, sorry"),
+        }
+    }
+}
+impl Eq for Value {}
+
+impl std::hash::Hash for Value {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        match self {
+            Value::Nil => ().hash(state),
+            Value::Number(n) => n.hash(state),
+            Value::Fraction(fraction) => todo!(),
+            Value::String(s) => s.hash(state),
+            Value::Bool(_) => todo!(),
+            Value::Closure { params, body } => todo!(),
+            Value::Table(hash_map) => todo!(),
+        }
+    }
 }
 
 impl std::fmt::Display for Value {
@@ -34,6 +79,7 @@ impl std::fmt::Display for Value {
             Value::String(s) => write!(f, "{s}"),
             Value::Bool(b) => write!(f, "{b}"),
             Value::Closure { params, body: _ } => write!(f, "function {params:#?}"),
+            Value::Table(hash_map) => write!(f, "{hash_map:?}"),
         }
     }
 }
@@ -167,13 +213,16 @@ impl Value {
     }
 }
 
-pub struct Context<T> {
-    stdout: T,
+pub trait StdOut: Any + std::io::Write {}
+impl<T> StdOut for T where T: Any + std::io::Write {}
+
+pub struct Context {
+    stdout: Box<dyn StdOut>,
     globals: HashMap<String, Value>,
     locals: Vec<HashMap<String, Value>>,
 }
 
-impl<T: std::io::Write> Context<T> {
+impl Context {
     pub fn get(&self, name: &str) -> Option<Value> {
         for scope in self.locals.iter().rev() {
             if let Some(val) = scope.get(name) {
@@ -206,16 +255,24 @@ fn main() {
     let ast = parser.parse();
 
     let globals: HashMap<String, Value> = Default::default();
-    let mut context: Context<std::io::Stdout> = Context {
-        stdout: std::io::stdout(),
+    let mut context: Context = Context {
+        stdout: Box::new(std::io::stdout()),
         globals,
         locals: vec![HashMap::new()],
     };
 
-    run_block(&ast, &mut context);
+    run_block(&ast, &mut context).expect("TODO");
 }
 
-fn run_block<T: std::io::Write>(stmts: &[parser::Stmt], context: &mut Context<T>) -> Option<Value> {
+#[derive(Debug)]
+enum Ret {
+    #[expect(dead_code)]
+    Continue,
+    Break,
+    Return(Value),
+}
+
+fn run_block(stmts: &[parser::Stmt], context: &mut Context) -> Result<(), Ret> {
     for stmt in stmts {
         // dbg!(stmt);
         match stmt {
@@ -232,30 +289,37 @@ fn run_block<T: std::io::Write>(stmts: &[parser::Stmt], context: &mut Context<T>
                 }
             }
             parser::Stmt::If { cond, then, r#else } => {
+                // TODO: also accept '1'
                 if eval(cond, context) == Value::Bool(true) {
-                    run_block(then, context);
+                    run_block(then, context)?;
                 } else {
-                    run_block(r#else, context);
+                    run_block(r#else, context)?;
                 }
             }
             parser::Stmt::While { cond, body } => {
                 while eval(cond, context) == Value::Bool(true) {
-                    run_block(body, context);
+                    match run_block(body, context) {
+                        Ok(()) => {}
+                        Err(Ret::Break) => break,
+                        Err(Ret::Continue) => {}
+                        x@Err(Ret::Return(_)) => return x
+                    }
                 }
             }
-            parser::Stmt::Break => return None,
+            parser::Stmt::Break => return Err(Ret::Break),
+            parser::Stmt::Continue => return Err(Ret::Continue),
             parser::Stmt::Return(exprs) => {
                 let mut values: Vec<_> =
-                    exprs.into_iter().map(|expr| eval(expr, context)).collect();
-                return Some(values.remove(0));
+                    exprs.iter().map(|expr| eval(expr, context)).collect();
+                return Err(Ret::Return(values.remove(0)));
             }
-            parser::Stmt::DoEnd { body } => return run_block(body, context),
+            parser::Stmt::DoEnd { body } => run_block(body, context)?,
             parser::Stmt::FunctionCall {
                 function_name,
                 args,
             } => {
                 let evaluated_args: Vec<_> =
-                    args.into_iter().map(|arg| eval(arg, context)).collect();
+                    args.iter().map(|arg| eval(arg, context)).collect();
 
                 if function_name == "print" {
                     let mut line = evaluated_args
@@ -279,8 +343,13 @@ fn run_block<T: std::io::Write>(stmts: &[parser::Stmt], context: &mut Context<T>
                             for (param, arg) in params.iter().zip(evaluated_args) {
                                 context.insert_local(param.clone(), arg);
                             }
-                            run_block(&body.clone() /* TODO: get rid of clone */, context);
+                            let return_val = run_block(&body, context);
                             context.leave_scope();
+                            match return_val {
+                                Ok(()) => {},
+                                Err(Ret::Return(_x)) => {},
+                                Err(_) => panic!("break or continue outside of loop {return_val:?}"),
+                            }
                         }
                         x => panic!("{x:?} is not callable"),
                     }
@@ -288,10 +357,10 @@ fn run_block<T: std::io::Write>(stmts: &[parser::Stmt], context: &mut Context<T>
             }
         }
     }
-    None
+    Ok(())
 }
 
-fn eval<T: std::io::Write>(expr: &parser::Expr, context: &mut Context<T>) -> Value {
+fn eval(expr: &parser::Expr, context: &mut Context) -> Value {
     match expr {
         parser::Expr::Nil => Value::Nil,
         parser::Expr::Numeral(i) => Value::Number(*i),
@@ -332,7 +401,7 @@ fn eval<T: std::io::Write>(expr: &parser::Expr, context: &mut Context<T>) -> Val
             }
             .expect("TODO")
         }
-        parser::Expr::Var(ident) => context.get(ident).expect("TODO").clone(),
+        parser::Expr::Var(ident) => context.get(ident).expect("TODO, value not found").clone(),
         parser::Expr::FunctionCall {
             function_name,
             args,
@@ -366,8 +435,9 @@ fn eval<T: std::io::Write>(expr: &parser::Expr, context: &mut Context<T>) -> Val
                             run_block(&body.clone() /* TODO: get rid of clone */, context);
                         context.leave_scope();
                         match return_val {
-                            None => Value::Nil,
-                            Some(val) => val,
+                            Ok(()) => Value::Nil,
+                            Err(Ret::Return(x)) => x,
+                            Err(_) => panic!("break or continue outside of loop {return_val:?}"),
                         }
                     }
                     x => panic!("{x:?} is not callable"),
@@ -378,5 +448,22 @@ fn eval<T: std::io::Write>(expr: &parser::Expr, context: &mut Context<T>) -> Val
             params: arguments.clone(),
             body: body.clone(),
         },
+        parser::Expr::Table { values } => {
+            let mut map = HashMap::new();
+            for (key, value) in values {
+                map.insert(eval(key, context), eval(value, context));
+            }
+            Value::Table(map)
+        }
+        parser::Expr::TableIndex { table, index } => {
+            let t = eval(table, context);
+            match t {
+                Value::Table(map) => map
+                    .get(&eval(index, context))
+                    .cloned()
+                    .unwrap_or(Value::Nil),
+                _ => panic!("not a table"),
+            }
+        }
     }
 }

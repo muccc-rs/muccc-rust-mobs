@@ -66,6 +66,7 @@ pub enum Keyword {
     Repeat,
     Function,
     Goto,
+    Continue,
 
     // Literals
     False,
@@ -232,9 +233,9 @@ impl Tokenizer {
 }
 
 fn is_emoji(c: char) -> bool {
-    // Covers common emoji ranges including emoticons, symbols, and supplemental symbols
+    // Covers common emoji ranges including emoji, symbols, and supplemental symbols
     matches!(c as u32,
-        0x1F600..=0x1F64F | // Emoticons
+        0x1F600..=0x1F64F | // Emoji
         0x1F300..=0x1F5FF | // Misc Symbols and Pictographs
         0x1F680..=0x1F6FF | // Transport and Map
         0x1F900..=0x1F9FF | // Supplemental Symbols and Pictographs
@@ -246,6 +247,21 @@ fn is_emoji(c: char) -> bool {
 }
 
 fn roman_number(s: &str) -> Option<i64> {
+    macro_rules! digit {
+        ($c:ident) => {
+            match $c {
+                'I' => 1,
+                'V' => 5,
+                'X' => 10,
+                'L' => 50,
+                'C' => 100,
+                'D' => 500,
+                'M' => 1000,
+                _ => return None,
+            }
+        };
+    }
+
     let mut res = 0;
     let mut last = None;
     for c in s.chars() {
@@ -254,26 +270,8 @@ fn roman_number(s: &str) -> Option<i64> {
             continue;
         }
         let last_c = last.unwrap();
-        let n = match last_c {
-            'I' => 1,
-            'V' => 5,
-            'X' => 10,
-            'L' => 50,
-            'C' => 100,
-            'D' => 500,
-            'M' => 1000,
-            _ => return None,
-        };
-        let m = match c {
-            'I' => 1,
-            'V' => 5,
-            'X' => 10,
-            'L' => 50,
-            'C' => 100,
-            'D' => 500,
-            'M' => 1000,
-            _ => return None,
-        };
+        let n = digit!(last_c);
+        let m = digit!(c);
         if n < m {
             res -= n;
         } else {
@@ -282,18 +280,7 @@ fn roman_number(s: &str) -> Option<i64> {
         last = Some(c);
     }
     let c = last.unwrap();
-    Some(
-        res + match c {
-            'I' => 1,
-            'V' => 5,
-            'X' => 10,
-            'L' => 50,
-            'C' => 100,
-            'D' => 500,
-            'M' => 1000,
-            _ => return None,
-        },
-    )
+    Some(res + digit!(c))
 }
 
 // sorted from long to short for greedy tokenizing
@@ -312,6 +299,10 @@ const MAPPING: &[(&str, Token)] = &[
     (";", Token::Semicolon),
     ("^", Token::Caret),
     (">", Token::Gt),
+    ("{", Token::BraceOpen),
+    ("}", Token::BraceClose),
+    ("[", Token::SqParOpen),
+    ("]", Token::SqParClose),
 ];
 
 const ROMAN_MAPPING: &[(&str, Token)] = &[
@@ -334,6 +325,7 @@ const ROMAN_MAPPING: &[(&str, Token)] = &[
 const KEYWORDS: &[(&str, Keyword)] = &[
     ("and", Keyword::And),
     ("break", Keyword::Break),
+    ("continue", Keyword::Continue),
     ("do", Keyword::Do),
     ("else", Keyword::Else),
     ("elseif", Keyword::ElseIf),

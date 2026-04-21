@@ -146,3 +146,14 @@ print(1/2)
 -- k = DCIXX -- Very nice
 
 -- local meaning_of_life = 21 * 2 - XI
+
+x = [[y]]
+t = { x = 1, [x] = 2 }
+print(t)
+
+l = { 3, 2, 1 }
+print(l)
+
+print(t[ [[x]] ])
+print(l[1])
+print(l[2])

@@ -6,6 +6,7 @@ use crate::{
 #[derive(Debug, serde::Serialize, Clone, PartialEq, Eq)]
 pub enum Stmt {
     Break,
+    Continue,
     Return(Vec<Expr>),
     While {
         cond: Expr,
@@ -51,6 +52,13 @@ pub enum Expr {
         arguments: Vec<String>,
         body: Vec<Stmt>,
     },
+    Table {
+        values: Vec<(Expr, Expr)>,
+    },
+    TableIndex {
+        table: Box<Expr>,
+        index: Box<Expr>,
+    },
 }
 
 impl Expr {
@@ -84,6 +92,10 @@ impl Expr {
                 arguments: _,
                 body: _,
             } => "(fn () <TODO: body>)".to_string(),
+            Expr::Table { values } => "table".to_string(),
+            Expr::TableIndex { table, index } => {
+                format!("{}[{}]", table.to_s_expr(), index.to_s_expr())
+            }
         }
     }
 }
@@ -293,6 +305,10 @@ impl LobsterParser {
                 self.advance();
                 Some(Stmt::Break)
             }
+            Token::Keyword(Keyword::Continue) => {
+                self.advance();
+                Some(Stmt::Continue)
+            }
             Token::Keyword(Keyword::While) => {
                 self.advance();
                 let cond = self.parse_expr().expect("todo");
@@ -431,7 +447,7 @@ impl LobsterParser {
     }
 
     fn parse_atomic_expr(&mut self) -> Option<Expr> {
-        let expr = match &self.current_tok {
+        let mut expr = match &self.current_tok {
             Token::ParOpen => {
                 self.advance();
                 let res = self.parse_expr().expect("TODO");
@@ -490,31 +506,88 @@ impl LobsterParser {
 
                 Expr::FunctionDef { arguments, body }
             }
+            Token::BraceOpen => {
+                self.advance();
+                let mut kvs = vec![];
+                let mut cur_idx = 0;
+                loop {
+                    if self.current_tok == Token::BraceClose {
+                        break;
+                    }
+                    match self.current_tok {
+                        Token::SqParOpen => {
+                            self.advance();
+                            let key = self.parse_expr().expect("TODO");
+                            self.expect(&Token::SqParClose);
+                            self.expect(&Token::Equals);
+                            let value = self.parse_expr().expect("TODO");
+                            kvs.push((key, value));
+                        }
+                        _ => {
+                            let expr = self.parse_expr().expect("TODO");
+                            if self.current_tok == Token::Equals {
+                                self.advance();
+                                let Expr::Var(key) = expr else { todo!() };
+                                let value = self.parse_expr().expect("TODO");
+                                kvs.push((Expr::String(key), value));
+                            } else {
+                                let key = Expr::Numeral(cur_idx);
+                                cur_idx += 1;
+                                kvs.push((key, expr));
+                            }
+                        }
+                    }
+                    match self.current_tok {
+                        Token::Comma => self.advance(),
+                        Token::BraceClose => break,
+                        _ => panic!("syntax error {:?}", self.current_tok),
+                    }
+                }
+                self.expect(&Token::BraceClose);
+                Expr::Table { values: kvs }
+            }
             _ => return None,
         };
+
         eprintln!("expr {expr:?} — {:?}", self.current_tok);
-        if self.current_tok == Token::ParOpen {
-            self.advance();
-            let Expr::Var(function_name) = expr else {
-                return None;
-            };
-            // function call
-            let mut args = vec![];
-            while let Some(arg) = self.parse_expr() {
-                args.push(arg);
-                if self.current_tok == Token::Comma {
+        loop {
+            match self.current_tok {
+                Token::ParOpen => {
                     self.advance();
-                } else {
-                    break;
+                    let Expr::Var(function_name) = expr else {
+                        return None;
+                    };
+                    // function call
+                    let mut args = vec![];
+                    while let Some(arg) = self.parse_expr() {
+                        args.push(arg);
+                        if self.current_tok == Token::Comma {
+                            self.advance();
+                        } else {
+                            break;
+                        }
+                    }
+                    self.expect(&Token::ParClose);
+                    expr = Expr::FunctionCall {
+                        function_name,
+                        args,
+                    };
+                }
+                Token::SqParOpen => {
+                    self.advance();
+                    let table = expr;
+                    let index = self.parse_expr().expect("TODO");
+                    self.expect(&Token::SqParClose);
+                    expr = Expr::TableIndex {
+                        table: Box::new(table),
+                        index: Box::new(index),
+                    };
+                }
+
+                _ => {
+                    return Some(expr);
                 }
             }
-            self.expect(&Token::ParClose);
-            Some(Expr::FunctionCall {
-                function_name,
-                args,
-            })
-        } else {
-            Some(expr)
         }
     }
 

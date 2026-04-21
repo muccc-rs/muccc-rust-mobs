@@ -1,5 +1,7 @@
 #![cfg(test)]
+use std::any::Any;
 use std::collections::HashMap;
+use std::ops::DerefMut;
 
 use crate::parser::LobsterParser;
 use crate::{Context, Value, run_block};
@@ -10,15 +12,19 @@ fn run(source: &str) -> String {
 
     let globals: HashMap<String, Value> = Default::default();
 
-    let mut context: Context<Vec<u8>> = Context {
-        stdout: Vec::new(),
+    let mut context: Context = Context {
+        stdout: Box::new(Vec::<u8>::new()),
         globals,
         locals: vec![HashMap::new()],
     };
 
-    run_block(&ast, &mut context);
+    run_block(&ast, &mut context).expect("TODO");
 
-    String::from_utf8(context.stdout).unwrap()
+    let stdout: Box<dyn Any> = context.stdout;
+    let mut stdout: Box<Vec<u8>> = stdout.downcast::<Vec<u8>>().unwrap();
+    let stdout: Vec<u8> = std::mem::take(stdout.deref_mut()); // FIXME: replace with Box::into_inner once stable
+
+    String::from_utf8(stdout).unwrap()
 }
 
 #[test]
@@ -60,4 +66,63 @@ All the fractions
 5/6
 "
     );
+}
+
+#[test]
+fn tables() {
+    let out = run(r#"
+        empty = {}
+        v = 12
+        t = { x = 1, [v] = 12 }
+        print(t[ [[x]] ])
+        print(t[v])
+
+        print()
+
+        l = { 1, 2, 3 }
+        print(l[0])
+        print(l[1])
+        print(l[2])
+        print(l[3])
+    "#);
+    assert_eq!(
+        out,
+        "\
+1
+12
+
+1
+2
+3
+nil
+"
+    );
+}
+
+#[test]
+fn test_break() {
+    let out = run(r#"
+    while true do
+        print(1)
+        break
+        print(2)
+    end
+    "#);
+    assert_eq!(out, "1\n");
+}
+
+#[test]
+fn test_continue() {
+    let out = run(r#"
+    count = 0
+    while true do
+        count = count + 1
+        if 2 > count then
+            continue
+        end
+        break
+    end
+    print(count)
+    "#);
+    assert_eq!(out, "2\n");
 }
