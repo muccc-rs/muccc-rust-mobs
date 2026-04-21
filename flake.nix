@@ -39,7 +39,7 @@
                 rec {
                   nativeBuildInputs = with pkgs; [
                     pkg-config
-                    wrapGAppsHook
+                    wrapGAppsHook3
                     cmake
                   ];
                   buildInputs =
