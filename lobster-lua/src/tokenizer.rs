@@ -303,6 +303,7 @@ const MAPPING: &[(&str, Token)] = &[
     ("}", Token::BraceClose),
     ("[", Token::SqParOpen),
     ("]", Token::SqParClose),
+    (".", Token::Dot),
 ];
 
 const ROMAN_MAPPING: &[(&str, Token)] = &[

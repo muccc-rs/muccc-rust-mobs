@@ -1,9 +1,11 @@
 ---
 source: src/parser.rs
+assertion_line: 717
 expression: result
 ---
 - Assignment:
-    variable: foobar
-    value:
+    lhs:
+      Var: foobar
+    rhs:
       Numeral: 1
     local: false

@@ -16,19 +16,39 @@ pub enum Stmt {
         body: Vec<Stmt>,
     },
     Assignment {
-        variable: String,
-        value: Expr,
+        lhs: LeftExpr,
+        rhs: Expr,
         local: bool,
     },
-    FunctionCall {
-        function_name: String,
-        args: Vec<Expr>,
+    Expr {
+        expr: Expr,
     },
     If {
         cond: Expr,
         then: Vec<Stmt>,
         r#else: Vec<Stmt>,
     },
+}
+
+#[derive(Debug, serde::Serialize, Clone, PartialEq, Eq)]
+pub enum LeftExpr {
+    Var(String),
+    TableIndex {
+        table: Box<Expr>,
+        index: Box<Expr>,
+    },
+}
+
+impl TryFrom<Expr> for LeftExpr {
+    type Error = ();
+
+    fn try_from(value: Expr) -> Result<Self, Self::Error> {
+        match value {
+            Expr::Var(v) => Ok(LeftExpr::Var(v)),
+            Expr::TableIndex { table, index } => Ok(LeftExpr::TableIndex { table, index }),
+            _ => Err(())
+        }
+    }
 }
 
 #[derive(Debug, serde::Serialize, Clone, PartialEq, Eq)]
@@ -45,7 +65,7 @@ pub enum Expr {
     },
     Var(String),
     FunctionCall {
-        function_name: String,
+        callee: Box<Expr>,
         args: Vec<Expr>,
     },
     FunctionDef {
@@ -78,11 +98,11 @@ impl Expr {
             ),
             Expr::Var(name) => name.to_string(),
             Expr::FunctionCall {
-                function_name,
+                callee: function_name,
                 args,
             } => format!(
                 "(call {} {})",
-                function_name,
+                function_name.to_s_expr(),
                 args.into_iter()
                     .map(|e| e.to_s_expr())
                     .collect::<Vec<_>>()
@@ -293,8 +313,8 @@ impl LobsterParser {
                     let body = self.parse_block();
                     self.expect(&Token::Keyword(Keyword::End));
                     Some(Stmt::Assignment {
-                        variable: function_name,
-                        value: Expr::FunctionDef { arguments, body },
+                        lhs: LeftExpr::Var(function_name),
+                        rhs: Expr::FunctionDef { arguments, body },
                         local: false,
                     })
                 } else {
@@ -391,13 +411,36 @@ impl LobsterParser {
                 let variable = ident;
                 let value = self.parse_expr().expect("todo");
                 Some(Stmt::Assignment {
-                    variable,
-                    value,
+                    lhs: LeftExpr::Var(variable),
+                    rhs: value,
                     local: true,
                 })
             }
             Token::Ident(ident) => {
-                let ident = ident.clone();
+                let e = self.parse_expr().expect("TODO");
+                match self.current_tok {
+                    Token::Equals => {
+                        self.advance();
+                        let value = self.parse_expr().expect("todo");
+                         Some(Stmt::Assignment {
+                             lhs: e.try_into().expect("left-hand side of assignment must be a variable or table index"),
+                             rhs: value,
+                             local: false,
+                         })
+                    }
+                    Token::Comma => {
+                        todo!("a,b = c,d");
+                    }
+                    _ => {
+                        match e {
+                            Expr::FunctionCall { .. } => {
+                                Some(Stmt::Expr { expr: e })
+                            }
+                            _ => todo!("only function calls can be statement-level expressions")
+                        }
+                    }
+                }
+                /*let ident = ident.clone();
                 self.advance();
                 match self.current_tok {
                     Token::Equals => {
@@ -431,7 +474,7 @@ impl LobsterParser {
                         // Function call
                     }
                     _ => panic!("unexpected token"),
-                }
+                }*/
             }
             _ => None,
         }
@@ -552,11 +595,17 @@ impl LobsterParser {
         eprintln!("expr {expr:?} — {:?}", self.current_tok);
         loop {
             match self.current_tok {
+                Token::Dot => {
+                    self.advance();
+                    let table = expr;
+                    let Token::Ident(index) = self.current_tok.clone() else {
+                        panic!("PANIKK");
+                    };
+                    self.advance();
+                    expr = Expr::TableIndex { table: Box::new(table), index: Box::new(Expr::String(index)) };
+                }
                 Token::ParOpen => {
                     self.advance();
-                    let Expr::Var(function_name) = expr else {
-                        return None;
-                    };
                     // function call
                     let mut args = vec![];
                     while let Some(arg) = self.parse_expr() {
@@ -569,7 +618,7 @@ impl LobsterParser {
                     }
                     self.expect(&Token::ParClose);
                     expr = Expr::FunctionCall {
-                        function_name,
+                        callee: Box::new(expr),
                         args,
                     };
                 }

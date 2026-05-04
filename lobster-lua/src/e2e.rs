@@ -10,7 +10,7 @@ fn run(source: &str) -> String {
     let parser = LobsterParser::new(source.to_owned());
     let ast = parser.parse();
 
-    let globals: HashMap<String, Value> = Default::default();
+    let globals = crate::default_globals();
 
     let mut context: Context = Context {
         stdout: Box::new(Vec::<u8>::new()),

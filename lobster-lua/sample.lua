@@ -1,6 +1,6 @@
 
 
-               
+
 
 -- this is a comment
 
@@ -8,7 +8,7 @@
 
 Line 2
 ]===]
-                  
+
 
 -- return nil, nil;
 
@@ -127,6 +127,7 @@ c = 0
 
 add = function (a, b)
   c = a + b
+  return c
 end
 
 add(1,2)
@@ -157,3 +158,37 @@ print(l)
 print(t[ [[x]] ])
 print(l[1])
 print(l[2])
+
+-- l[2] = 42
+print(l)
+
+t2 = { a = { b = 42 } }
+print(t2.a.b)
+-- print(t2:a(foo))
+-- print(t2.a(t2, foo))
+
+
+too = { a = {b = add} }
+food = too[  [[a]]  ].b(1,2)
+too[  [[a]]  ].b(1,2)
+too.a.b = 2
+print(food)
+print(too)
+
+
+
+function foo ()
+		 return too
+end
+
+three = { t = foo }
+
+three.t().a.b = 4
+
+print(too)
+
+print2 = print
+print2([[hello]])
+
+os.execute([[uname -a]])
+io.open([[/proc/cmdline]], [[r]])

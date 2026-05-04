@@ -1,9 +1,13 @@
 ---
 source: src/parser.rs
-expression: expr
+assertion_line: 719
+expression: result
 ---
-- FunctionCall:
-    function_name: frobnicate
-    args:
-      - Numeral: 22
-      - String: Foo Bar
+- Expr:
+    expr:
+      FunctionCall:
+        callee:
+          Var: frobnicate
+        args:
+          - Numeral: 22
+          - String: Foo Bar

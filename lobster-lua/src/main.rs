@@ -1,7 +1,9 @@
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::{any::Any, collections::HashMap};
 // decisions:
 // our lua starts at 0
-use std::fs::read_to_string;
+use std::fs::{self, read_to_string};
 
 use crate::parser::{LobsterParser, Stmt};
 
@@ -11,6 +13,15 @@ mod parser;
 mod tokenizer;
 
 use fraction::Fraction;
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
+pub enum Builtin {
+    Print,
+    Execute,
+    FileOpen,
+    FileRead,
+    FileWrite,
+}
 
 #[derive(Debug, Clone)]
 pub enum Value {
@@ -23,7 +34,9 @@ pub enum Value {
         params: Vec<String>,
         body: Vec<Stmt>,
     },
-    Table(HashMap<Value, Value>),
+    Builtin(Builtin),
+    Table(Rc<RefCell<HashMap<Value, Value>>>),
+    FsFile(Rc<RefCell<fs::File>>),
 }
 
 impl PartialEq for Value {
@@ -39,6 +52,8 @@ impl PartialEq for Value {
             (Self::String(_), _) => false,
             (Self::Bool(l0), Self::Bool(r0)) => l0 == r0,
             (Self::Bool(_), _) => false,
+            (Self::Builtin(l0), Self::Builtin(r0)) => l0 == r0,
+            (Self::Builtin(_), _) => false,
             (
                 Self::Closure {
                     params: l_params,
@@ -48,9 +63,10 @@ impl PartialEq for Value {
                     params: r_params,
                     body: r_body,
                 },
-            ) => l_params == r_params && l_body == r_body,
+            ) => l_params == r_params && l_body == r_body, // TODO: compare by pointer
             (Self::Closure { .. }, _) => false,
             (Self::Table(_), _) => todo!("No time, sorry"),
+            (Self::FsFile(_), _) => todo!("dont go comparing your files kids"),
         }
     }
 }
@@ -59,13 +75,15 @@ impl Eq for Value {}
 impl std::hash::Hash for Value {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         match self {
-            Value::Nil => ().hash(state),
+            Value::Nil => {}
             Value::Number(n) => n.hash(state),
             Value::Fraction(fraction) => todo!(),
             Value::String(s) => s.hash(state),
             Value::Bool(_) => todo!(),
+            Value::Builtin(b) => b.hash(state),
             Value::Closure { params, body } => todo!(),
             Value::Table(hash_map) => todo!(),
+            Value::FsFile(file) => todo!(),
         }
     }
 }
@@ -78,8 +96,10 @@ impl std::fmt::Display for Value {
             Value::Fraction(n) => write!(f, "{n}"),
             Value::String(s) => write!(f, "{s}"),
             Value::Bool(b) => write!(f, "{b}"),
+            Value::Builtin(b) => write!(f, "function {b:?}"),
             Value::Closure { params, body: _ } => write!(f, "function {params:#?}"),
             Value::Table(hash_map) => write!(f, "{hash_map:?}"),
+            Value::FsFile(file) => write!(f, "fiel {file:?}"),
         }
     }
 }
@@ -213,6 +233,12 @@ impl Value {
     }
 }
 
+impl From<&str> for Value {
+    fn from(value: &str) -> Self {
+        Value::String(value.to_string())
+    }
+}
+
 pub trait StdOut: Any + std::io::Write {}
 impl<T> StdOut for T where T: Any + std::io::Write {}
 
@@ -249,12 +275,32 @@ impl Context {
     }
 }
 
+fn os_module() -> Value {
+    let mut m = HashMap::default();
+    m.insert("execute".into(), Value::Builtin(Builtin::Execute));
+    Value::Table(Rc::new(RefCell::new(m)))
+}
+
+fn io_module() -> Value {
+    let mut m = HashMap::default();
+    m.insert("open".into(), Value::Builtin(Builtin::FileOpen));
+    Value::Table(Rc::new(RefCell::new(m)))
+}
+
+fn default_globals() -> HashMap<String, Value> {
+    let mut globals: HashMap<String, Value> = Default::default();
+    globals.insert("print".to_string(), Value::Builtin(Builtin::Print));
+    globals.insert("os".to_string(), os_module());
+    globals.insert("io".to_string(), io_module());
+    globals
+}
+
 fn main() {
     let source = read_to_string("sample.lua").expect("todo");
     let parser = LobsterParser::new(source);
     let ast = parser.parse();
 
-    let globals: HashMap<String, Value> = Default::default();
+    let globals = default_globals();
     let mut context: Context = Context {
         stdout: Box::new(std::io::stdout()),
         globals,
@@ -277,15 +323,26 @@ fn run_block(stmts: &[parser::Stmt], context: &mut Context) -> Result<(), Ret> {
         // dbg!(stmt);
         match stmt {
             parser::Stmt::Assignment {
-                variable,
-                value,
+                lhs,
+                rhs: value,
                 local,
             } => {
                 let res = eval(value, context);
-                if *local {
-                    context.insert_local(variable.clone(), res);
-                } else {
-                    context.insert_global(variable.clone(), res);
+                match lhs {
+                    parser::LeftExpr::Var(variable) => {
+                        if *local {
+                            context.insert_local(variable.clone(), res);
+                        } else {
+                            context.insert_global(variable.clone(), res);
+                        }
+                    }
+                    parser::LeftExpr::TableIndex { table, index } => {
+                        let Value::Table(table) = eval(table, context) else {
+                            panic!("Indexing into not a table");
+                        };
+                        let index = eval(index, context);
+                        table.borrow_mut().insert(index, res);
+                    }
                 }
             }
             parser::Stmt::If { cond, then, r#else } => {
@@ -302,58 +359,19 @@ fn run_block(stmts: &[parser::Stmt], context: &mut Context) -> Result<(), Ret> {
                         Ok(()) => {}
                         Err(Ret::Break) => break,
                         Err(Ret::Continue) => {}
-                        x@Err(Ret::Return(_)) => return x
+                        x @ Err(Ret::Return(_)) => return x,
                     }
                 }
             }
             parser::Stmt::Break => return Err(Ret::Break),
             parser::Stmt::Continue => return Err(Ret::Continue),
             parser::Stmt::Return(exprs) => {
-                let mut values: Vec<_> =
-                    exprs.iter().map(|expr| eval(expr, context)).collect();
+                let mut values: Vec<_> = exprs.iter().map(|expr| eval(expr, context)).collect();
                 return Err(Ret::Return(values.remove(0)));
             }
             parser::Stmt::DoEnd { body } => run_block(body, context)?,
-            parser::Stmt::FunctionCall {
-                function_name,
-                args,
-            } => {
-                let evaluated_args: Vec<_> =
-                    args.iter().map(|arg| eval(arg, context)).collect();
-
-                if function_name == "print" {
-                    let mut line = evaluated_args
-                        .iter()
-                        .map(|a| a.to_string())
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    line.push('\n');
-
-                    write!(context.stdout, "{line}").expect("write failed!");
-                } else {
-                    let function = context.get(function_name).expect("TODO");
-                    match function {
-                        Value::Closure { params, body } => {
-                            context.enter_scope();
-                            assert_eq!(
-                                params.len(),
-                                args.len(),
-                                "calling with wrong number of parameters"
-                            );
-                            for (param, arg) in params.iter().zip(evaluated_args) {
-                                context.insert_local(param.clone(), arg);
-                            }
-                            let return_val = run_block(&body, context);
-                            context.leave_scope();
-                            match return_val {
-                                Ok(()) => {},
-                                Err(Ret::Return(_x)) => {},
-                                Err(_) => panic!("break or continue outside of loop {return_val:?}"),
-                            }
-                        }
-                        x => panic!("{x:?} is not callable"),
-                    }
-                }
+            parser::Stmt::Expr { expr } => {
+                eval(expr, context); // should be a function call
             }
         }
     }
@@ -402,46 +420,88 @@ fn eval(expr: &parser::Expr, context: &mut Context) -> Value {
             .expect("TODO")
         }
         parser::Expr::Var(ident) => context.get(ident).expect("TODO, value not found").clone(),
-        parser::Expr::FunctionCall {
-            function_name,
-            args,
-        } => {
+        parser::Expr::FunctionCall { callee, args } => {
             let evaluated_args: Vec<_> = args.into_iter().map(|arg| eval(arg, context)).collect();
 
-            if function_name == "print" {
-                let mut line = evaluated_args
-                    .iter()
-                    .map(|a| a.to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                line.push('\n');
-
-                write!(context.stdout, "{line}").expect("write failed!");
-                Value::Nil
-            } else {
-                let function = context.get(function_name).expect("TODO");
-                match function {
-                    Value::Closure { params, body } => {
-                        context.enter_scope();
-                        assert_eq!(
-                            params.len(),
-                            args.len(),
-                            "calling with wrong number of parameters"
-                        );
-                        for (param, arg) in params.iter().zip(evaluated_args) {
-                            context.insert_local(param.clone(), arg);
-                        }
-                        let return_val =
-                            run_block(&body.clone() /* TODO: get rid of clone */, context);
-                        context.leave_scope();
-                        match return_val {
-                            Ok(()) => Value::Nil,
-                            Err(Ret::Return(x)) => x,
-                            Err(_) => panic!("break or continue outside of loop {return_val:?}"),
-                        }
+            let function = eval(callee, context);
+            match function {
+                Value::Closure { params, body } => {
+                    context.enter_scope();
+                    assert_eq!(
+                        params.len(),
+                        args.len(),
+                        "calling with wrong number of parameters"
+                    );
+                    for (param, arg) in params.iter().zip(evaluated_args) {
+                        context.insert_local(param.clone(), arg);
                     }
-                    x => panic!("{x:?} is not callable"),
+                    let return_val =
+                        run_block(&body.clone() /* TODO: get rid of clone */, context);
+                    context.leave_scope();
+                    match return_val {
+                        Ok(()) => Value::Nil,
+                        Err(Ret::Return(x)) => x,
+                        Err(_) => panic!("break or continue outside of loop {return_val:?}"),
+                    }
                 }
+                Value::Builtin(Builtin::Print) => {
+                    let mut line = evaluated_args
+                        .iter()
+                        .map(|a| a.to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    line.push('\n');
+
+                    write!(context.stdout, "{line}").expect("write failed!");
+                    Value::Nil
+                }
+                Value::Builtin(Builtin::Execute) => {
+                    assert_eq!(evaluated_args.len(), 1);
+                    let Value::String(command) = &evaluated_args[0] else {
+                        panic!("cannot run this shit");
+                    };
+                    #[cfg(target_os = "linux")]
+                    std::process::Command::new("/bin/sh")
+                        .arg("-c")
+                        .arg(command)
+                        .status()
+                        .unwrap();
+                    #[cfg(target_os = "windows")]
+                    std::process::Command::new("cmd.exe")
+                        .arg(command)
+                        .status()
+                        .unwrap();
+                    Value::Nil
+                }
+                Value::Builtin(Builtin::FileOpen) => {
+                    assert_eq!(evaluated_args.len(), 2);
+                    let Value::String(filename) = &evaluated_args[0] else {
+                        panic!("this does not smell like a file");
+                    };
+                    let Value::String(mode) = &evaluated_args[1] else {
+                        panic!("mode should be string");
+                    };
+
+                    let file = match mode.as_str() {
+                        "r" => fs::File::open(filename),
+                        "w" => fs::File::create(filename),
+                        "a" => fs::OpenOptions::new().append(true).open(filename),
+                        _ => panic!("Not an option, bro"),
+                    };
+                    Value::FsFile(Rc::new(RefCell::new(file.expect("I want to be a file"))))
+                }
+                Value::Builtin(Builtin::FileWrite) => {
+                    assert_eq!(evaluated_args.len(), 2);
+                    let Value::Table(file_handle) = &evaluated_args[0] else {
+                        panic!("TODO: expected a file table thingy");
+                    };
+                    let Value::String(write) = &evaluated_args[1] else {
+                        panic!("Provide a String to write!")
+                    };
+                    todo!("Writing not yet supported")
+                }
+
+                x => panic!("{x:?} is not callable"),
             }
         }
         parser::Expr::FunctionDef { arguments, body } => Value::Closure {
@@ -453,12 +513,13 @@ fn eval(expr: &parser::Expr, context: &mut Context) -> Value {
             for (key, value) in values {
                 map.insert(eval(key, context), eval(value, context));
             }
-            Value::Table(map)
+            Value::Table(Rc::new(RefCell::new(map)))
         }
         parser::Expr::TableIndex { table, index } => {
             let t = eval(table, context);
             match t {
                 Value::Table(map) => map
+                    .borrow()
                     .get(&eval(index, context))
                     .cloned()
                     .unwrap_or(Value::Nil),

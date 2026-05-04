@@ -1,10 +1,12 @@
 ---
 source: src/parser.rs
+assertion_line: 728
 expression: result
 ---
 - Assignment:
-    variable: x
-    value:
+    lhs:
+      Var: x
+    rhs:
       BinOp:
         op: Plus
         lhs:
