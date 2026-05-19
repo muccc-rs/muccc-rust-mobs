@@ -1,3 +1,4 @@
+++
 
 
 
@@ -8,6 +9,7 @@
 
 Line 2
 ]===]
+
 
 
 -- return nil, nil;
@@ -159,12 +161,14 @@ print(t[ [[x]] ])
 print(l[1])
 print(l[2])
 
--- l[2] = 42
-print(l)
-
-t2 = { a = { b = 42 } }
+l[2] = 42
+print([[lllllllllllllllll: ]], l)
+t2 = { a = { b = 42 } , test = function(self,arg)
+  print([[test]],self.a.b)
+end
+}
 print(t2.a.b)
--- print(t2:a(foo))
+print(t2:test(foo))
 -- print(t2.a(t2, foo))
 
 

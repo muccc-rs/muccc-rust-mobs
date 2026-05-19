@@ -1,3 +1,6 @@
+#![expect(clippy::mutable_key_type)] // Lua tables keyed by Value, and Value has a variant with interior mutability
+
+use core::panic;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::{any::Any, collections::HashMap};
@@ -7,7 +10,10 @@ use std::fs::{self, read_to_string};
 
 use crate::parser::{LobsterParser, Stmt};
 
+#[cfg(test)]
 mod e2e;
+#[cfg(test)]
+mod errortest;
 mod fraction;
 mod parser;
 mod tokenizer;
@@ -77,13 +83,13 @@ impl std::hash::Hash for Value {
         match self {
             Value::Nil => {}
             Value::Number(n) => n.hash(state),
-            Value::Fraction(fraction) => todo!(),
+            Value::Fraction(_fraction) => todo!(),
             Value::String(s) => s.hash(state),
             Value::Bool(_) => todo!(),
             Value::Builtin(b) => b.hash(state),
-            Value::Closure { params, body } => todo!(),
-            Value::Table(hash_map) => todo!(),
-            Value::FsFile(file) => todo!(),
+            Value::Closure { params: _, body: _ } => todo!(),
+            Value::Table(_hash_map) => todo!(),
+            Value::FsFile(_file) => todo!(),
         }
     }
 }
@@ -231,6 +237,16 @@ impl Value {
             _ => Err("PANIK"),
         }
     }
+
+    fn get(&self, name: &Value) -> Result<Value, &'static str> {
+        match self {
+            Value::Table(ref_cell) => {
+                let table = ref_cell.borrow();
+                Ok(table.get(name).expect("todo").clone())
+            }
+            _ => Err("this is not a -bucket- table"),
+        }
+    }
 }
 
 impl From<&str> for Value {
@@ -297,8 +313,13 @@ fn default_globals() -> HashMap<String, Value> {
 
 fn main() {
     let source = read_to_string("sample.lua").expect("todo");
-    let parser = LobsterParser::new(source);
-    let ast = parser.parse();
+    let parser = LobsterParser::new(source.clone());
+    let ast = match parser.parse() {
+        Ok(ast) => ast,
+        Err(e) => {
+            panic!("{}", e.render("sample.lua", &source));
+        }
+    };
 
     let globals = default_globals();
     let mut context: Context = Context {
@@ -312,7 +333,6 @@ fn main() {
 
 #[derive(Debug)]
 enum Ret {
-    #[expect(dead_code)]
     Continue,
     Break,
     Return(Value),
@@ -421,88 +441,27 @@ fn eval(expr: &parser::Expr, context: &mut Context) -> Value {
         }
         parser::Expr::Var(ident) => context.get(ident).expect("TODO, value not found").clone(),
         parser::Expr::FunctionCall { callee, args } => {
+            let function = eval(callee, context);
+
             let evaluated_args: Vec<_> = args.into_iter().map(|arg| eval(arg, context)).collect();
 
-            let function = eval(callee, context);
-            match function {
-                Value::Closure { params, body } => {
-                    context.enter_scope();
-                    assert_eq!(
-                        params.len(),
-                        args.len(),
-                        "calling with wrong number of parameters"
-                    );
-                    for (param, arg) in params.iter().zip(evaluated_args) {
-                        context.insert_local(param.clone(), arg);
-                    }
-                    let return_val =
-                        run_block(&body.clone() /* TODO: get rid of clone */, context);
-                    context.leave_scope();
-                    match return_val {
-                        Ok(()) => Value::Nil,
-                        Err(Ret::Return(x)) => x,
-                        Err(_) => panic!("break or continue outside of loop {return_val:?}"),
-                    }
-                }
-                Value::Builtin(Builtin::Print) => {
-                    let mut line = evaluated_args
-                        .iter()
-                        .map(|a| a.to_string())
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    line.push('\n');
+            evaluate_function(context, evaluated_args, function)
+        }
+        parser::Expr::MethodCall {
+            callee,
+            method_name,
+            args,
+        } => {
+            let object = eval(callee, context);
 
-                    write!(context.stdout, "{line}").expect("write failed!");
-                    Value::Nil
-                }
-                Value::Builtin(Builtin::Execute) => {
-                    assert_eq!(evaluated_args.len(), 1);
-                    let Value::String(command) = &evaluated_args[0] else {
-                        panic!("cannot run this shit");
-                    };
-                    #[cfg(target_os = "linux")]
-                    std::process::Command::new("/bin/sh")
-                        .arg("-c")
-                        .arg(command)
-                        .status()
-                        .unwrap();
-                    #[cfg(target_os = "windows")]
-                    std::process::Command::new("cmd.exe")
-                        .arg(command)
-                        .status()
-                        .unwrap();
-                    Value::Nil
-                }
-                Value::Builtin(Builtin::FileOpen) => {
-                    assert_eq!(evaluated_args.len(), 2);
-                    let Value::String(filename) = &evaluated_args[0] else {
-                        panic!("this does not smell like a file");
-                    };
-                    let Value::String(mode) = &evaluated_args[1] else {
-                        panic!("mode should be string");
-                    };
+            let mut evaluated_args: Vec<_> =
+                args.iter().map(|arg| eval(arg, context)).collect();
+            let function = object
+                .get(&Value::String(method_name.clone()))
+                .expect("todo");
 
-                    let file = match mode.as_str() {
-                        "r" => fs::File::open(filename),
-                        "w" => fs::File::create(filename),
-                        "a" => fs::OpenOptions::new().append(true).open(filename),
-                        _ => panic!("Not an option, bro"),
-                    };
-                    Value::FsFile(Rc::new(RefCell::new(file.expect("I want to be a file"))))
-                }
-                Value::Builtin(Builtin::FileWrite) => {
-                    assert_eq!(evaluated_args.len(), 2);
-                    let Value::Table(file_handle) = &evaluated_args[0] else {
-                        panic!("TODO: expected a file table thingy");
-                    };
-                    let Value::String(write) = &evaluated_args[1] else {
-                        panic!("Provide a String to write!")
-                    };
-                    todo!("Writing not yet supported")
-                }
-
-                x => panic!("{x:?} is not callable"),
-            }
+            evaluated_args.insert(0, object);
+            evaluate_function(context, evaluated_args, function)
         }
         parser::Expr::FunctionDef { arguments, body } => Value::Closure {
             params: arguments.clone(),
@@ -526,5 +485,86 @@ fn eval(expr: &parser::Expr, context: &mut Context) -> Value {
                 _ => panic!("not a table"),
             }
         }
+    }
+}
+
+fn evaluate_function(context: &mut Context, evaluated_args: Vec<Value>, function: Value) -> Value {
+    match function {
+        Value::Closure { params, body } => {
+            context.enter_scope();
+            assert_eq!(
+                params.len(),
+                evaluated_args.len(),
+                "calling with wrong number of parameters"
+            );
+            for (param, arg) in params.iter().zip(evaluated_args) {
+                context.insert_local(param.clone(), arg);
+            }
+            let return_val = run_block(&body.clone() /* TODO: get rid of clone */, context);
+            context.leave_scope();
+            match return_val {
+                Ok(()) => Value::Nil,
+                Err(Ret::Return(x)) => x,
+                Err(_) => panic!("break or continue outside of loop {return_val:?}"),
+            }
+        }
+        Value::Builtin(Builtin::Print) => {
+            let mut line = evaluated_args
+                .iter()
+                .map(|a| a.to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            line.push('\n');
+
+            write!(context.stdout, "{line}").expect("write failed!");
+            Value::Nil
+        }
+        Value::Builtin(Builtin::Execute) => {
+            assert_eq!(evaluated_args.len(), 1);
+            let Value::String(command) = &evaluated_args[0] else {
+                panic!("cannot run this shit");
+            };
+            #[cfg(target_os = "linux")]
+            std::process::Command::new("/bin/sh")
+                .arg("-c")
+                .arg(command)
+                .status()
+                .unwrap();
+            #[cfg(target_os = "windows")]
+            std::process::Command::new("cmd.exe")
+                .arg(command)
+                .status()
+                .unwrap();
+            Value::Nil
+        }
+        Value::Builtin(Builtin::FileOpen) => {
+            assert_eq!(evaluated_args.len(), 2);
+            let Value::String(filename) = &evaluated_args[0] else {
+                panic!("this does not smell like a file");
+            };
+            let Value::String(mode) = &evaluated_args[1] else {
+                panic!("mode should be string");
+            };
+
+            let file = match mode.as_str() {
+                "r" => fs::File::open(filename),
+                "w" => fs::File::create(filename),
+                "a" => fs::OpenOptions::new().append(true).open(filename),
+                _ => panic!("Not an option, bro"),
+            };
+            Value::FsFile(Rc::new(RefCell::new(file.expect("I want to be a file"))))
+        }
+        Value::Builtin(Builtin::FileWrite) => {
+            assert_eq!(evaluated_args.len(), 2);
+            let Value::Table(_file_handle) = &evaluated_args[0] else {
+                panic!("TODO: expected a file table thingy");
+            };
+            let Value::String(_write) = &evaluated_args[1] else {
+                panic!("Provide a String to write!")
+            };
+            todo!("Writing not yet supported")
+        }
+
+        x => panic!("{x:?} is not callable"),
     }
 }

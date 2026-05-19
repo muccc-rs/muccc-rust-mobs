@@ -1,4 +1,3 @@
-#![cfg(test)]
 use std::any::Any;
 use std::collections::HashMap;
 use std::ops::DerefMut;
@@ -8,7 +7,7 @@ use crate::{Context, Value, run_block};
 
 fn run(source: &str) -> String {
     let parser = LobsterParser::new(source.to_owned());
-    let ast = parser.parse();
+    let ast = parser.parse().unwrap();
 
     let globals = crate::default_globals();
 
