@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::ops::DerefMut;
 
 use crate::parser::LobsterParser;
-use crate::{Context, Value, run_block};
+use crate::{Context, run_block};
 
 fn run(source: &str) -> String {
     let parser = LobsterParser::new(source.to_owned());

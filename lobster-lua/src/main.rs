@@ -454,8 +454,7 @@ fn eval(expr: &parser::Expr, context: &mut Context) -> Value {
         } => {
             let object = eval(callee, context);
 
-            let mut evaluated_args: Vec<_> =
-                args.iter().map(|arg| eval(arg, context)).collect();
+            let mut evaluated_args: Vec<_> = args.iter().map(|arg| eval(arg, context)).collect();
             let function = object
                 .get(&Value::String(method_name.clone()))
                 .expect("todo");
@@ -524,17 +523,21 @@ fn evaluate_function(context: &mut Context, evaluated_args: Vec<Value>, function
             let Value::String(command) = &evaluated_args[0] else {
                 panic!("cannot run this shit");
             };
-            #[cfg(target_os = "linux")]
-            std::process::Command::new("/bin/sh")
-                .arg("-c")
-                .arg(command)
-                .status()
-                .unwrap();
-            #[cfg(target_os = "windows")]
-            std::process::Command::new("cmd.exe")
-                .arg(command)
-                .status()
-                .unwrap();
+            cfg_select! {
+                target_family = "unix" => {
+                    std::process::Command::new("/bin/sh")
+                        .arg("-c")
+                        .arg(command)
+                        .status()
+                        .unwrap();
+                }
+                target_os = "windows" => {
+                    std::process::Command::new("cmd.exe")
+                        .arg(command)
+                        .status()
+                        .unwrap();
+                }
+            }
             Value::Nil
         }
         Value::Builtin(Builtin::FileOpen) => {
