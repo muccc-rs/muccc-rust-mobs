@@ -77,7 +77,7 @@ foobar = [[foo]] .. [[bar]]
 
 print([[All the fractions]])
 print(·)
-print(:)
+-- print(:)
 print(∴)
 print(∷)
 print(⁙)

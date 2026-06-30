@@ -80,9 +80,20 @@ pub enum Keyword {
 }
 
 #[derive(Debug)]
+pub struct TokenizerError {
+    pub message: String,
+    pub pos: usize,
+}
+
+#[derive(Debug)]
 pub struct Tokenizer {
     source: String,
     pos: usize,
+}
+
+struct MultilineStringEndMarkerError {
+    pos: usize,
+    end_marker: String,
 }
 
 impl Tokenizer {
@@ -94,13 +105,23 @@ impl Tokenizer {
         &self.source[self.pos..]
     }
 
-    fn skip_ws(&mut self) {
+    fn skip_ws(&mut self) -> Result<(), TokenizerError> {
         while let Some(c) = self.remaining().chars().next() {
             if c.is_whitespace() {
                 self.pos += c.len_utf8();
             } else if self.remaining().starts_with("--") {
                 self.pos += 2;
-                if self.multiline_string().is_none() {
+                if self
+                    .multiline_string()
+                    .map_err(|e| TokenizerError {
+                        message: format!(
+                            "Multiline comment is missing {} end marker",
+                            e.end_marker
+                        ),
+                        pos: e.pos - 2,
+                    })?
+                    .is_none()
+                {
                     if let Some(idx) = self.remaining().find("\n") {
                         self.pos += idx;
                     } else {
@@ -111,6 +132,7 @@ impl Tokenizer {
                 break;
             }
         }
+        Ok(())
     }
 
     /*
@@ -121,30 +143,32 @@ impl Tokenizer {
     this is a string
     ]====]
      */
-    fn multiline_string(&mut self) -> Option<String> {
+    fn multiline_string(&mut self) -> Result<Option<String>, MultilineStringEndMarkerError> {
         let mut chars = self.remaining().chars();
         if chars.next() != Some('[') {
-            return None;
+            return Ok(None);
         };
         let num_eqs = chars.clone().take_while(|&c| c == '=').count();
         if chars.nth(num_eqs) != Some('[') {
-            return None;
+            return Ok(None);
         };
         let start = self.pos + 1 + num_eqs + 1;
 
-        let mut endmarker = String::new();
-        endmarker.push(']');
-        endmarker.push_str(&"=".repeat(num_eqs));
-        endmarker.push(']');
+        let mut end_marker = String::new();
+        end_marker.push(']');
+        end_marker.push_str(&"=".repeat(num_eqs));
+        end_marker.push(']');
 
-        let end = self
-            .remaining()
-            .find(&endmarker)
-            .expect("TODO should have an end");
+        let Some(end) = self.remaining().find(&end_marker) else {
+            return Err(MultilineStringEndMarkerError {
+                pos: self.pos,
+                end_marker,
+            });
+        };
 
         let content_end = self.pos + end;
-        self.pos += end + endmarker.len();
-        Some(self.source[start..content_end].to_owned())
+        self.pos += end + end_marker.len();
+        Ok(Some(self.source[start..content_end].to_owned()))
     }
 
     fn check_for_identifier(&mut self) -> Option<String> {
@@ -164,21 +188,26 @@ impl Tokenizer {
         }
     }
 
-    fn check_for_number(&mut self) -> Option<i64> {
+    fn check_for_number(&mut self) -> Result<Option<i64>, TokenizerError> {
         let non_numeric_idx = self
             .remaining()
             .find(|c: char| !c.is_numeric())
             .unwrap_or(self.remaining().len());
         if non_numeric_idx == 0 {
-            return None;
+            return Ok(None);
         }
-        let res = self.remaining()[0..non_numeric_idx].parse().expect("TODO");
+        let res = self.remaining()[0..non_numeric_idx]
+            .parse::<i64>()
+            .map_err(|e| TokenizerError {
+                message: e.to_string(),
+                pos: self.pos,
+            })?;
         self.pos += non_numeric_idx;
-        Some(res)
+        Ok(Some(res))
     }
 
-    pub fn next_token(&mut self) -> Result<(Token, usize), String> {
-        self.skip_ws();
+    pub fn next_token(&mut self) -> Result<(Token, usize), TokenizerError> {
+        self.skip_ws()?;
 
         if self.pos == self.source.len() {
             return Ok((Token::EOF, self.pos));
@@ -204,11 +233,14 @@ impl Tokenizer {
             }
             return Ok((Token::Ident(identifier), start_pos));
         }
-        if let Some(s) = self.multiline_string() {
+        if let Some(s) = self.multiline_string().map_err(|e| TokenizerError {
+            message: format!("Did not find matching string end marker {}", e.end_marker),
+            pos: e.pos,
+        })? {
             return Ok((Token::StringLiteral(s), start_pos));
         }
 
-        if let Some(n) = self.check_for_number() {
+        if let Some(n) = self.check_for_number()? {
             return Ok((Token::NumberLiteral(n), start_pos));
         }
 
@@ -228,7 +260,10 @@ impl Tokenizer {
         //     return Ok((token, start_pos));
         // }
 
-        Err("Unhappy?".to_owned())
+        Err(TokenizerError {
+            message: "Unknown Error".to_string(),
+            pos: self.pos,
+        })
     }
 }
 

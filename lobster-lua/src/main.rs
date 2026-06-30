@@ -313,8 +313,7 @@ fn default_globals() -> HashMap<String, Value> {
 
 fn main() {
     let source = read_to_string("sample.lua").expect("todo");
-    let parser = LobsterParser::new(source.clone());
-    let ast = match parser.parse() {
+    let ast = match LobsterParser::parse(source.clone()) {
         Ok(ast) => ast,
         Err(e) => {
             panic!("{}", e.render("sample.lua", &source));

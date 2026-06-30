@@ -225,18 +225,24 @@ impl BinOp {
 
 #[derive(Debug)]
 pub struct ParserError {
-    msg: String,
-    position: usize,
+    message: String,
+    pos: usize,
 }
 
 impl ParserError {
     pub fn render(&self, fname: &str, code: &str) -> String {
-        let line_number = code[..self.position].chars().filter(|&c| c == '\n').count() + 1;
+        let line_number = code[..self.pos].chars().filter(|&c| c == '\n').count() + 1;
 
-        let line_start = code[..self.position].rfind('\n').map_or(0, |p| p + 1);
+        let line_start = code[..self.pos].rfind('\n').map_or(0, |p| p + 1);
         let line = code[(line_start)..].split('\n').next().unwrap();
+        let col = self.pos - line_start + 1; // TODO: assumes ASCII
 
-        format!("{fname}:{line_number} {}\n | {line}", self.msg)
+        format!(
+            "{fname}:{line_number}:{col}: {}\n | {line}\n   {:pad$}^",
+            self.message,
+            "",
+            pad = col - 1
+        )
     }
 }
 
@@ -254,41 +260,46 @@ fn is_block_terminator(tok: &Token) -> bool {
 }
 
 impl LobsterParser {
-    pub fn new(source: String) -> Self {
+    pub fn parse(source: String) -> ParseResult<Vec<Stmt>> {
         let mut tokenizer = Tokenizer::new(source);
-        let (current_tok, current_pos) = tokenizer.next_token().expect("TODO");
-        Self {
+        let (current_tok, current_pos) = tokenizer.next_token().map_err(|e| ParserError {
+            message: e.message,
+            pos: e.pos,
+        })?; // anchor: yagEGIQ2
+        let mut this = Self {
             current_tok,
             current_pos,
             tokenizer,
-        }
-    }
+        };
 
-    pub fn parse(mut self) -> ParseResult<Vec<Stmt>> {
-        let res = self.parse_block()?;
-        if self.current_tok == Token::EOF {
+        let res = this.parse_block()?;
+        if this.current_tok == Token::EOF {
             Ok(res)
         } else {
             Err(ParserError {
-                msg: format!("Expected EOF, found {:?}", self.current_tok),
-                position: self.current_pos,
+                message: format!("Expected EOF, found {:?}", this.current_tok),
+                pos: this.current_pos,
             })
         }
     }
 
-    fn advance(&mut self) {
+    fn advance(&mut self) -> ParseResult<()> {
         println!("advance");
-        let (current_tok, current_pos) = self.tokenizer.next_token().expect("TODO");
+        let (current_tok, current_pos) = self.tokenizer.next_token().map_err(|e| ParserError {
+            message: e.message,
+            pos: e.pos,
+        })?; // anchor: yagEGIQ2
         println!("current_tok: {:?}", current_tok);
         self.current_pos = current_pos;
         self.current_tok = current_tok;
+        Ok(())
     }
 
     fn parse_block(&mut self) -> ParseResult<Vec<Stmt>> {
         let mut stmt_list = vec![];
         loop {
             if let Token::Keyword(Keyword::Return) = self.current_tok {
-                self.advance();
+                self.advance()?;
                 let e = match self.parse_expr()? {
                     None => {
                         stmt_list.push(Stmt::Return(vec![]));
@@ -298,11 +309,11 @@ impl LobsterParser {
                 };
                 let mut values = vec![e];
                 while self.current_tok == Token::Comma {
-                    self.advance();
+                    self.advance()?;
                     values.push(self.parse_expr()?.expect("todo"));
                 }
                 if self.current_tok == Token::Semicolon {
-                    self.advance();
+                    self.advance()?;
                 }
                 stmt_list.push(Stmt::Return(values));
                 break;
@@ -345,24 +356,24 @@ impl LobsterParser {
     fn parse_stmt(&mut self) -> ParseResult<Stmt> {
         match &self.current_tok {
             Token::Keyword(Keyword::Function) => {
-                self.advance();
+                self.advance()?;
                 let Token::Ident(function_name) = self.current_tok.clone() else {
                     return Err(ParserError {
-                        msg: "Function name must be an identifier!".to_string(),
-                        position: self.current_pos,
+                        message: "Function name must be an identifier!".to_string(),
+                        pos: self.current_pos,
                     });
                 };
-                self.advance();
+                self.advance()?;
                 self.expect(&Token::ParOpen)?;
                 let mut arguments = vec![];
                 if self.current_tok != Token::ParClose {
-                    arguments.push(self.parse_argument());
+                    arguments.push(self.parse_argument()?);
                     loop {
                         if self.current_tok == Token::ParClose {
                             break;
                         }
                         self.expect(&Token::Comma)?;
-                        arguments.push(self.parse_argument());
+                        arguments.push(self.parse_argument()?);
                     }
                 }
                 self.expect(&Token::ParClose)?;
@@ -375,15 +386,15 @@ impl LobsterParser {
                 })
             }
             Token::Keyword(Keyword::Break) => {
-                self.advance();
+                self.advance()?;
                 Ok(Stmt::Break)
             }
             Token::Keyword(Keyword::Continue) => {
-                self.advance();
+                self.advance()?;
                 Ok(Stmt::Continue)
             }
             Token::Keyword(Keyword::While) => {
-                self.advance();
+                self.advance()?;
                 let cond = self.parse_expr()?.expect("todo");
                 self.expect(&Token::Keyword(Keyword::Do))?;
                 let body = self.parse_block().expect("TODO");
@@ -392,13 +403,13 @@ impl LobsterParser {
             }
             //Do End
             Token::Keyword(Keyword::Do) => {
-                self.advance();
+                self.advance()?;
                 let block = self.parse_block().expect("TODO");
                 self.expect(&Token::Keyword(Keyword::End))?;
                 Ok(Stmt::DoEnd { body: block })
             }
             Token::Keyword(Keyword::If) => {
-                self.advance();
+                self.advance()?;
                 let cond = self.parse_expr()?.expect("todo");
                 self.expect(&Token::Keyword(Keyword::Then))?;
                 let then = self.parse_block().expect("TODO");
@@ -418,7 +429,7 @@ impl LobsterParser {
                 let mut else_placeholder = else_placeholder;
 
                 while self.current_tok == Token::Keyword(Keyword::ElseIf) {
-                    self.advance();
+                    self.advance()?;
                     let cond = self.parse_expr()?.expect("todo");
                     self.expect(&Token::Keyword(Keyword::Then))?;
                     let then = self.parse_block().expect("TODO");
@@ -442,10 +453,10 @@ impl LobsterParser {
 
                 match self.current_tok {
                     Token::Keyword(Keyword::End) => {
-                        self.advance();
+                        self.advance()?;
                     }
                     Token::Keyword(Keyword::Else) => {
-                        self.advance();
+                        self.advance()?;
                         let else_block = self.parse_block().expect("TODO");
                         self.expect(&Token::Keyword(Keyword::End))?;
                         *else_placeholder = else_block;
@@ -455,14 +466,14 @@ impl LobsterParser {
                 Ok(whole)
             }
             Token::Keyword(Keyword::Local) => {
-                self.advance();
+                self.advance()?;
                 let Token::Ident(ident) = self.current_tok.clone() else {
                     return Err(ParserError {
-                        msg: "expected variable name".to_string(),
-                        position: self.current_pos,
+                        message: "expected variable name".to_string(),
+                        pos: self.current_pos,
                     });
                 };
-                self.advance();
+                self.advance()?;
                 self.expect(&Token::Equals)?;
                 let variable = ident;
                 let value = self.parse_expr()?.expect("todo");
@@ -476,7 +487,7 @@ impl LobsterParser {
                 let e = self.parse_expr()?.expect("TODO");
                 match self.current_tok {
                     Token::Equals => {
-                        self.advance();
+                        self.advance()?;
                         let value = self.parse_expr()?.expect("todo");
                         Ok(Stmt::Assignment {
                             lhs: e.try_into().expect(
@@ -495,10 +506,10 @@ impl LobsterParser {
                     },
                 }
                 /*let ident = ident.clone();
-                self.advance();
+                self.advance()?;
                 match self.current_tok {
                     Token::Equals => {
-                        self.advance();
+                        self.advance()?;
                         let variable = ident;
                         let value = self.parse_expr()?.expect("todo");
                         Some(Stmt::Assignment {
@@ -509,12 +520,12 @@ impl LobsterParser {
                         // Assignment
                     }
                     Token::ParOpen => {
-                        self.advance();
+                        self.advance()?;
                         let mut args = vec![];
                         while let Some(arg) = self.parse_expr() {
                             args.push(arg);
                             if self.current_tok == Token::Comma {
-                                self.advance();
+                                self.advance()?;
                             } else {
                                 break;
                             }
@@ -531,8 +542,8 @@ impl LobsterParser {
                 }*/
             }
             tok => Err(ParserError {
-                msg: format!("weird statement start: {tok:?}"),
-                position: self.current_pos,
+                message: format!("weird statement start: {tok:?}"),
+                pos: self.current_pos,
             }),
         }
     }
@@ -540,12 +551,12 @@ impl LobsterParser {
     #[track_caller]
     fn expect(&mut self, tok: &Token) -> ParseResult<()> {
         if &self.current_tok == tok {
-            self.advance();
+            self.advance()?;
             Ok(())
         } else {
             Err(ParserError {
-                msg: format!("Expected {tok:?}, got {:?}", self.current_tok),
-                position: self.current_pos,
+                message: format!("Expected {tok:?}, got {:?}", self.current_tok),
+                pos: self.current_pos,
             })
         }
     }
@@ -553,12 +564,12 @@ impl LobsterParser {
     #[track_caller]
     fn expect_with_message(&mut self, tok: &Token, message: &str) -> ParseResult<()> {
         if &self.current_tok == tok {
-            self.advance();
+            self.advance()?;
             Ok(())
         } else {
             Err(ParserError {
-                msg: format!("Expected {message}, got {:?}", self.current_tok),
-                position: self.current_pos,
+                message: format!("Expected {message}, got {:?}", self.current_tok),
+                pos: self.current_pos,
             })
         }
     }
@@ -566,54 +577,54 @@ impl LobsterParser {
     fn parse_atomic_expr(&mut self) -> ParseResult<Option<Expr>> {
         let mut expr: Expr = match &self.current_tok {
             Token::ParOpen => {
-                self.advance();
+                self.advance()?;
                 let res = self.parse_expr()?.expect("TODO");
                 self.expect(&Token::ParClose)?;
                 res
             }
             Token::Keyword(Keyword::Nil) => {
-                self.advance();
+                self.advance()?;
                 Expr::Nil
             }
             &Token::NumberLiteral(num) => {
-                self.advance();
+                self.advance()?;
                 Expr::Numeral(num)
             }
             &Token::FractionLiteral(num) => {
-                self.advance();
+                self.advance()?;
                 Expr::Fraction(num)
             }
             &Token::Keyword(Keyword::True) => {
-                self.advance();
+                self.advance()?;
                 Expr::Boolean(true)
             }
             &Token::Keyword(Keyword::False) => {
-                self.advance();
+                self.advance()?;
                 Expr::Boolean(false)
             }
             Token::StringLiteral(s) => {
                 let s = s.clone();
-                self.advance();
+                self.advance()?;
                 Expr::String(s)
             }
             Token::Ident(name) => {
                 let name = name.clone();
-                self.advance();
+                self.advance()?;
                 Expr::Var(name)
             }
             Token::Keyword(Keyword::Function) => {
-                self.advance();
+                self.advance()?;
                 self.expect(&Token::ParOpen)?;
 
                 let mut arguments = vec![];
                 if self.current_tok != Token::ParClose {
-                    arguments.push(self.parse_argument());
+                    arguments.push(self.parse_argument()?);
                     loop {
                         if self.current_tok == Token::ParClose {
                             break;
                         }
                         self.expect(&Token::Comma)?;
-                        arguments.push(self.parse_argument());
+                        arguments.push(self.parse_argument()?);
                     }
                 }
                 self.expect(&Token::ParClose)?;
@@ -627,7 +638,7 @@ impl LobsterParser {
                 Expr::FunctionDef { arguments, body }
             }
             Token::BraceOpen => {
-                self.advance();
+                self.advance()?;
                 let mut kvs = vec![];
                 let mut cur_idx = 0;
                 loop {
@@ -636,7 +647,7 @@ impl LobsterParser {
                     }
                     match self.current_tok {
                         Token::SqParOpen => {
-                            self.advance();
+                            self.advance()?;
                             let key = self.parse_expr()?.expect("TODO");
                             self.expect(&Token::SqParClose)?;
                             self.expect(&Token::Equals)?;
@@ -644,15 +655,16 @@ impl LobsterParser {
                             kvs.push((key, value));
                         }
                         _ => {
+                            let expr_pos = self.current_pos;
                             let expr = self.parse_expr()?.expect("TODO");
                             if self.current_tok == Token::Equals {
-                                self.advance();
                                 let Expr::Var(key) = expr else {
                                     return Err(ParserError {
-                                        msg: "list key must be an identifier".to_string(),
-                                        position: self.current_pos,
+                                        message: "list key must be an identifier".to_string(),
+                                        pos: expr_pos,
                                     });
                                 };
+                                self.advance()?;
                                 let value = self.parse_expr()?.expect("TODO");
                                 kvs.push((Expr::String(key), value));
                             } else {
@@ -663,15 +675,15 @@ impl LobsterParser {
                         }
                     }
                     match self.current_tok {
-                        Token::Comma => self.advance(),
+                        Token::Comma => self.advance()?,
                         Token::BraceClose => break,
                         _ => {
                             return Err(ParserError {
-                                msg: format!(
+                                message: format!(
                                     "Expected Comma or BraceClose, got {:?}",
                                     self.current_tok
                                 ),
-                                position: self.current_pos,
+                                pos: self.current_pos,
                             });
                         }
                     }
@@ -686,12 +698,12 @@ impl LobsterParser {
         loop {
             match self.current_tok {
                 Token::Dot => {
-                    self.advance();
+                    self.advance()?;
                     let table = expr;
                     let Token::Ident(index) = self.current_tok.clone() else {
                         panic!("PANIKK");
                     };
-                    self.advance();
+                    self.advance()?;
                     expr = Expr::TableIndex {
                         table: Box::new(table),
                         index: Box::new(Expr::String(index)),
@@ -699,11 +711,11 @@ impl LobsterParser {
                 }
                 Token::FractionLiteral(f) if f == Fraction::new(1, 6) => {
                     // colon
-                    self.advance();
+                    self.advance()?;
                     let Token::Ident(method_name) = self.current_tok.clone() else {
                         todo!("Expected method name after colon");
                     };
-                    self.advance();
+                    self.advance()?;
                     self.expect(&Token::ParOpen)?;
 
                     // TODO: dedup anchor: cbEnCpYf
@@ -711,7 +723,7 @@ impl LobsterParser {
                     while let Some(arg) = self.parse_expr()? {
                         args.push(arg);
                         if self.current_tok == Token::Comma {
-                            self.advance();
+                            self.advance()?;
                         } else {
                             break;
                         }
@@ -725,14 +737,14 @@ impl LobsterParser {
                     };
                 }
                 Token::ParOpen => {
-                    self.advance();
+                    self.advance()?;
                     // function call
                     // TODO: dedup anchor: cbEnCpYf
                     let mut args = vec![];
                     while let Some(arg) = self.parse_expr()? {
                         args.push(arg);
                         if self.current_tok == Token::Comma {
-                            self.advance();
+                            self.advance()?;
                         } else {
                             break;
                         }
@@ -744,7 +756,7 @@ impl LobsterParser {
                     };
                 }
                 Token::SqParOpen => {
-                    self.advance();
+                    self.advance()?;
                     let table = expr;
                     let index = self.parse_expr()?.expect("TODO");
                     self.expect(&Token::SqParClose)?;
@@ -771,7 +783,7 @@ impl LobsterParser {
             if l_prec < minimum_binding_power {
                 break;
             }
-            self.advance();
+            self.advance()?;
             let rhs = self.parse_expr_inner(r_prec)?.expect("TODO");
             lhs = Expr::BinOp {
                 op,
@@ -786,13 +798,13 @@ impl LobsterParser {
         self.parse_expr_inner(0)
     }
 
-    fn parse_argument(&mut self) -> String {
+    fn parse_argument(&mut self) -> ParseResult<String> {
         let arg = match &self.current_tok {
             Token::Ident(name) => name.clone(),
             _ => panic!("Expected identifier, got {:?}", self.current_tok),
         };
-        self.advance();
-        arg
+        self.advance()?;
+        Ok(arg)
     }
 }
 
@@ -801,9 +813,11 @@ mod tests {
     use super::*;
 
     fn check_expr(s: &str, expected: &str) {
-        let mut parser = LobsterParser::new(s.to_owned());
-        let expr = parser.parse_expr().unwrap().unwrap();
-        assert_eq!(expr.to_s_expr(), expected, "failed when parsing {s:?}");
+        let blocks = LobsterParser::parse(format!("x = {s}")).unwrap();
+        let crate::parser::Stmt::Assignment { rhs, .. } = &blocks[0] else {
+            panic!("Could not extract expression from assignment");
+        };
+        assert_eq!(rhs.to_s_expr(), expected, "failed when parsing {s:?}");
     }
 
     macro_rules! test_expr {
@@ -830,8 +844,7 @@ mod tests {
         ($name:ident, $source:expr) => {
             #[test]
             fn $name() {
-                let parser = LobsterParser::new($source.to_string());
-                parser.parse().unwrap();
+                LobsterParser::parse($source.to_string()).unwrap();
             }
         };
     }

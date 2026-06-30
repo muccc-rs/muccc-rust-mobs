@@ -6,8 +6,7 @@ use crate::parser::LobsterParser;
 use crate::{Context, run_block};
 
 fn run(source: &str) -> String {
-    let parser = LobsterParser::new(source.to_owned());
-    let ast = parser.parse().unwrap();
+    let ast = LobsterParser::parse(source.to_owned()).unwrap();
 
     let globals = crate::default_globals();
 
