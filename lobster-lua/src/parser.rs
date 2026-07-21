@@ -502,6 +502,7 @@ impl LobsterParser {
                     }
                     _ => match e {
                         Expr::FunctionCall { .. } => Ok(Stmt::Expr { expr: e }),
+                        Expr::MethodCall { .. } => Ok(Stmt::Expr { expr: e }),
                         _ => todo!("only function calls can be statement-level expressions"),
                     },
                 }

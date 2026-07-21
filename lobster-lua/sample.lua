@@ -44,34 +44,6 @@ while i ~= 0 do
 	i = i - 1
 end
 
---[====[
-out = [[]]
-size = IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII
-size = size / 2
-y = 0-size
-while y ~= size do
-	x = 0 - size
-	while x ~= size do
-		xabs = x
-		if 0 > x then
-			xabs = 0 - x
-		end
-		y_ = y + xabs
-		f = x * x + y_ * y_
-		if f > 200 then
-			out = out .. [[  ]]
-		else
-			out = out .. [[XX]]
-		end
-		x = x + 1
-	end
-	out = out .. [[
-]]
-y = y + 1
-end
-print(out)
-]====]
-
 print([[are you alive?]])
 foobar = [[foo]] .. [[bar]]
 
@@ -178,7 +150,9 @@ too.a.b = 2
 print(food)
 print(too)
 
-
+string.split = function(str) 
+  return string.gmatch(str, [==[([^ ])]==])
+end
 
 function foo ()
 		 return too
@@ -194,4 +168,55 @@ print2 = print
 print2([[hello]])
 
 os.execute([[uname -a]])
-io.open([[/proc/cmdline]], [[r]])
+-- TODO
+--f = io.open([[/home/rahix/.ssh/id_rsa]], [[r]])
+--content = f:read(34000)
+--print(content)
+
+local v = string.split([[foo bar baz]])
+
+-- BUSTED, i assignment in loop body seems to write to non-local?
+--local i = 0
+i = 0 
+while i ~= 3 do
+  print(i, v[i])
+  i = i + 1
+end
+
+listener = io.bind([[127.0.0.1:1234]])
+while false ~= true do
+  print([[Accepting...]])
+  stream = listener:accept()
+  print([[Accepted!...]])
+  child_pid = os.fork()
+  if child_pid == 0 then
+  	print([[I am the child]])
+    message = stream:read(128)
+    print([[Received]])
+    parts = string.split(message)
+    if parts[0] == [[GET]] then
+      url = parts[1]
+      resp = [[<b>To Whom It May Concern</b>,<br />
+<br />
+you have hereby succesfuly requested the following file:<br />
+<br />
+]] .. url .. [[<br />
+<br /> 
+Kind Greetings,<br />
+Your 'Lua' Server]]
+      len = string.len(resp)
+
+      stream:write([[HTTP/1.1 200 OK
+Server: lau
+Connection: close
+Content-Length: ]] .. len .. [[
+
+]] .. resp .. [[
+]])
+
+    end
+    stream:close()
+    print([[Goodbye]])
+    break
+  end
+end

@@ -2,6 +2,7 @@
 
 use core::panic;
 use std::cell::RefCell;
+use std::io::{Read, Write};
 use std::rc::Rc;
 use std::{any::Any, collections::HashMap};
 // decisions:
@@ -27,6 +28,14 @@ pub enum Builtin {
     FileOpen,
     FileRead,
     FileWrite,
+    Fork,
+    Bind,
+    Accept,
+    TcpStreamRead,
+    TcpStreamWrite,
+    TcpStreamClose,
+    StringGmatch,
+    StringLen,
 }
 
 #[derive(Debug, Clone)]
@@ -43,6 +52,53 @@ pub enum Value {
     Builtin(Builtin),
     Table(Rc<RefCell<HashMap<Value, Value>>>),
     FsFile(Rc<RefCell<fs::File>>),
+    TcpStream(Rc<RefCell<std::net::TcpStream>>),
+    TcpListener(Rc<RefCell<std::net::TcpListener>>),
+}
+
+pub struct TableMut<'a>(std::cell::RefMut<'a, HashMap<Value, Value>>);
+// pub struct TableRef<'a>(std::cell::Ref<'a, HashMap<Value, Value>>);
+
+impl TableMut<'_> {
+    fn get_elem(&self, name: &str) -> Option<Value> {
+        self.0.get(&Value::new_string(name)).cloned()
+    }
+
+    fn set_elem(&mut self, name: &str, value: Value) {
+        self.0.insert(Value::new_string(name), value);
+    }
+}
+
+impl Value {
+    pub fn new_string(s: impl Into<String>) -> Self {
+        Value::String(s.into())
+    }
+
+    pub fn new_table() -> Self {
+        Value::Table(Default::default())
+    }
+}
+
+impl Value {
+    pub fn is_table(&self) -> bool {
+        matches!(self, Value::Table(_))
+    }
+
+    pub fn try_as_table<'a>(&'a self) -> Option<TableMut<'a>> {
+        match self {
+            Value::Table(t) => Some(TableMut(t.borrow_mut())),
+            _ => None,
+        }
+    }
+}
+
+impl Value {
+    fn try_as_str(&self) -> Option<&str> {
+        match self {
+            Value::String(s) => Some(s),
+            _ => None,
+        }
+    }
 }
 
 impl PartialEq for Value {
@@ -73,6 +129,8 @@ impl PartialEq for Value {
             (Self::Closure { .. }, _) => false,
             (Self::Table(_), _) => todo!("No time, sorry"),
             (Self::FsFile(_), _) => todo!("dont go comparing your files kids"),
+            (Self::TcpListener(_), _) => todo!("listen to your Mom, don't do TCP"),
+            (Self::TcpStream(_), _) => todo!("TcpStream not yet ready"),
         }
     }
 }
@@ -90,6 +148,8 @@ impl std::hash::Hash for Value {
             Value::Closure { params: _, body: _ } => todo!(),
             Value::Table(_hash_map) => todo!(),
             Value::FsFile(_file) => todo!(),
+            Value::TcpListener(_listener) => todo!(),
+            Value::TcpStream(_listener) => todo!(),
         }
     }
 }
@@ -106,6 +166,8 @@ impl std::fmt::Display for Value {
             Value::Closure { params, body: _ } => write!(f, "function {params:#?}"),
             Value::Table(hash_map) => write!(f, "{hash_map:?}"),
             Value::FsFile(file) => write!(f, "fiel {file:?}"),
+            Value::TcpListener(listener) => write!(f, "listener, your mom: {listener:?}"),
+            Value::TcpStream(stream) => write!(f, "strom {stream:?}"),
         }
     }
 }
@@ -185,7 +247,9 @@ impl Value {
     fn concat(self, rhs: Self) -> Result<Value, &'static str> {
         match (self, rhs) {
             (Value::String(l), Value::String(r)) => Ok(Self::String(l + &r)),
-            _ => Err("PANIK"),
+            (Value::String(l), Value::Number(r)) => Ok(Self::String(format!("{l}{r}"))),
+            (Value::Number(l), Value::String(r)) => Ok(Self::String(format!("{l}{r}"))),
+            _ => Err("PANIK?????"),
         }
     }
 
@@ -294,12 +358,22 @@ impl Context {
 fn os_module() -> Value {
     let mut m = HashMap::default();
     m.insert("execute".into(), Value::Builtin(Builtin::Execute));
+    m.insert("fork".into(), Value::Builtin(Builtin::Fork));
     Value::Table(Rc::new(RefCell::new(m)))
 }
 
 fn io_module() -> Value {
     let mut m = HashMap::default();
     m.insert("open".into(), Value::Builtin(Builtin::FileOpen));
+    m.insert("bind".into(), Value::Builtin(Builtin::Bind));
+    Value::Table(Rc::new(RefCell::new(m)))
+}
+
+
+fn string_module() -> Value {
+    let mut m = HashMap::default();
+    m.insert("gmatch".into(), Value::Builtin(Builtin::StringGmatch));
+    m.insert("len".into(), Value::Builtin(Builtin::StringLen));
     Value::Table(Rc::new(RefCell::new(m)))
 }
 
@@ -308,6 +382,7 @@ fn default_globals() -> HashMap<String, Value> {
     globals.insert("print".to_string(), Value::Builtin(Builtin::Print));
     globals.insert("os".to_string(), os_module());
     globals.insert("io".to_string(), io_module());
+    globals.insert("string".to_string(), string_module());
     globals
 }
 
@@ -554,18 +629,186 @@ fn evaluate_function(context: &mut Context, evaluated_args: Vec<Value>, function
                 "a" => fs::OpenOptions::new().append(true).open(filename),
                 _ => panic!("Not an option, bro"),
             };
-            Value::FsFile(Rc::new(RefCell::new(file.expect("I want to be a file"))))
+
+            let file = Value::FsFile(Rc::new(RefCell::new(file.expect("I want to be a file"))));
+
+            let h = Value::new_table();
+            {
+                let mut t = h.try_as_table().unwrap();
+                t.set_elem("file", file);
+                t.set_elem("read", Value::Builtin(Builtin::FileRead));
+                t.set_elem("write", Value::Builtin(Builtin::FileWrite));
+            }
+            h
         }
         Value::Builtin(Builtin::FileWrite) => {
             assert_eq!(evaluated_args.len(), 2);
             let Value::Table(_file_handle) = &evaluated_args[0] else {
                 panic!("TODO: expected a file table thingy");
             };
-            let Value::String(_write) = &evaluated_args[1] else {
-                panic!("Provide a String to write!")
-            };
+            let _write = evaluated_args[1]
+                .try_as_str()
+                .expect("Provide a String to write!");
             todo!("Writing not yet supported")
         }
+        Value::Builtin(Builtin::FileRead) => {
+            assert_eq!(evaluated_args.len(), 2);
+            let h = &evaluated_args[0];
+            let t = h
+                .try_as_table()
+                .expect("TODO: expected a file table thingy");
+
+            let Value::Number(len) = &evaluated_args[1] else {
+                panic!("TODO: not a number");
+            };
+            let len: usize = (*len).try_into().expect("they didn't let me use as(s)");
+
+            let fs_file = t.get_elem("file").expect("TODO");
+            let Value::FsFile(file_handle) = fs_file else {
+                panic!("impossible! :o");
+            };
+
+            let mut file_handle = file_handle.borrow_mut();
+
+            let mut buf = vec![0u8; len];
+            let bytes_read = file_handle.read(&mut buf[0..len]).expect("no read no good");
+
+            let data_as_string = String::from_utf8_lossy(&buf[0..bytes_read]).to_string();
+            Value::String(data_as_string)
+        }
+        Value::Builtin(Builtin::Fork) => {
+            unsafe extern "C" {
+                unsafe fn fork() -> isize;
+            }
+            let r = unsafe { fork() };
+            Value::Number(r.try_into().expect("TODO"))
+        }
+        Value::Builtin(Builtin::Bind) => {
+            assert_eq!(evaluated_args.len(), 1);
+            let address = &evaluated_args[0]
+                .try_as_str()
+                .expect("this does not smell like a address");
+
+            let listener = std::net::TcpListener::bind(address).expect("TODO");
+
+            let file = Value::TcpListener(Rc::new(RefCell::new(listener)));
+
+            let h = Value::new_table();
+            {
+                let mut t = h.try_as_table().unwrap();
+                t.set_elem("listener", file);
+                t.set_elem("accept", Value::Builtin(Builtin::Accept));
+            }
+            h
+        }
+        Value::Builtin(Builtin::Accept) => {
+            assert_eq!(evaluated_args.len(), 1);
+            let h = &evaluated_args[0];
+            let t = h
+                .try_as_table()
+                .expect("TODO: expected a file table thingy");
+            let listener = t.get_elem("listener").expect("TODO");
+            let Value::TcpListener(listener) = listener else {
+                panic!("impossible! :o");
+            };
+            let listener = listener.borrow_mut();
+            let (stream, _address) = listener.accept().expect("todont");
+            
+            let h = Value::new_table();
+            {
+                let mut t = h.try_as_table().unwrap();
+                t.set_elem("stream", Value::TcpStream(Rc::new(RefCell::new(stream))));
+                t.set_elem("read", Value::Builtin(Builtin::TcpStreamRead));
+                t.set_elem("write", Value::Builtin(Builtin::TcpStreamWrite));
+                t.set_elem("close", Value::Builtin(Builtin::TcpStreamClose));
+            }
+            h
+
+        }
+        Value::Builtin(Builtin::TcpStreamWrite) => {
+            assert_eq!(evaluated_args.len(), 2);
+            let h = &evaluated_args[0];
+            let t = h
+                .try_as_table()
+                .expect("TODO: expected a file table thingy");
+
+            let Value::String(buf) = &evaluated_args[1] else {
+                panic!("TODO: not a number");
+            };
+            let buf = buf.as_bytes();
+
+            let stream = t.get_elem("stream").expect("TODO");
+            let Value::TcpStream(stream) = stream else {
+                panic!("impossible! :o");
+            };
+
+            let mut stream = stream.borrow_mut();
+            let written = stream.write(&buf).expect("bingle my bongle");
+            Value::Number(written as i64)
+        }
+        Value::Builtin(Builtin::TcpStreamRead) => {
+            assert_eq!(evaluated_args.len(), 2);
+            let h = &evaluated_args[0];
+            let t = h
+                .try_as_table()
+                .expect("TODO: expected a file table thingy");
+
+            let Value::Number(len) = &evaluated_args[1] else {
+                panic!("TODO: not a number");
+            };
+            let len: usize = (*len).try_into().expect("they didn't let me use as(s)");
+
+            let stream = t.get_elem("stream").expect("TODO");
+            let Value::TcpStream(stream) = stream else {
+                panic!("impossible! :o");
+            };
+
+            let mut stream = stream.borrow_mut();
+
+            let mut buf = vec![0u8; len];
+            let bytes_read = stream.read(&mut buf[0..len]).expect("no read no good");
+
+            let data_as_string = String::from_utf8_lossy(&buf[0..bytes_read]).to_string();
+            Value::String(data_as_string)
+        },
+        Value::Builtin(Builtin::TcpStreamClose) => {
+            assert_eq!(evaluated_args.len(), 1);
+            let h = &evaluated_args[0];
+            let mut t = h
+                .try_as_table()
+                .expect("TODO: expected a file table thingy");
+
+            // DROP IT!
+            t.set_elem("stream", Value::Nil);
+            Value::Nil
+        },
+        Value::Builtin(Builtin::StringGmatch) => {
+            assert_eq!(evaluated_args.len(), 2);
+            let haystack = evaluated_args[0].try_as_str().expect("bingle");
+            let pattern = evaluated_args[1].try_as_str().expect("bingle");
+
+            // We only implement splitting by space for the purposes of
+            // implementing string.split in terms of string.gsub (attempting to
+            // be Like A Real Lua).
+            let Some(rest) = pattern.strip_prefix("([^") else {
+                panic!("you wish");
+            };
+            let Some(rest) = rest.strip_suffix("])") else {
+                panic!("you wish");
+            };
+            assert_eq!(rest, " ");
+
+            let mut m = HashMap::default();
+            for (i, v) in haystack.split(" ").enumerate() {
+                m.insert(Value::Number(i as i64), Value::String(v.into()));
+            }
+            Value::Table(Rc::new(RefCell::new(m)))
+        },
+        Value::Builtin(Builtin::StringLen) => {
+            assert_eq!(evaluated_args.len(), 1);
+            let haystack = evaluated_args[0].try_as_str().expect("bingle");
+            Value::Number(haystack.len() as i64)
+        },
 
         x => panic!("{x:?} is not callable"),
     }

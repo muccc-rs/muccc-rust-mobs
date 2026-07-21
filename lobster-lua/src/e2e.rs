@@ -48,22 +48,19 @@ print(S:)
 print(S∴)
 print(S∷)
     "#);
-    assert_eq!(
-        out,
-        "\
-All the fractions
-1/12
-1/6
-1/4
-1/3
-5/12
-1/2
-7/12
-2/3
-3/4
-5/6
-"
-    );
+    expect_test::expect!([r#"
+        All the fractions
+        1/12
+        1/6
+        1/4
+        1/3
+        5/12
+        1/2
+        7/12
+        2/3
+        3/4
+        5/6
+    "#]).assert_eq(&out);
 }
 
 #[test]
@@ -83,18 +80,15 @@ fn tables() {
         print(l[2])
         print(l[3])
     "#);
-    assert_eq!(
-        out,
-        "\
-1
-12
+    expect_test::expect![[r#"
+        1
+        12
 
-1
-2
-3
-nil
-"
-    );
+        1
+        2
+        3
+        nil
+    "#]].assert_eq(&out);
 }
 
 #[test]
@@ -106,7 +100,9 @@ fn test_break() {
         print(2)
     end
     "#);
-    assert_eq!(out, "1\n");
+    expect_test::expect![[r#"
+        1
+    "#]].assert_eq(&out);
 }
 
 #[test]
@@ -122,5 +118,85 @@ fn test_continue() {
     end
     print(count)
     "#);
-    assert_eq!(out, "2\n");
+    expect_test::expect![[r#"
+        2
+    "#]].assert_eq(&out);
+}
+
+#[test]
+fn zzz() {
+    let out = run(r#"
+out = [[]]
+size = IIIIIIIIIIIIIIIIIIIIII
+y = 0-size
+while y ~= size do
+	x = 0 - size
+	while x ~= size do
+		xabs = x
+		if 0 > x then
+			xabs = 0 - x
+		end
+		y_ = y + xabs
+		f = x * x + y_ * y_
+		if f > 200 then
+			out = out .. [[XX]]
+		else
+			out = out .. [[  ]]
+		end
+		x = x + 1
+	end
+	out = out .. [[
+]]
+y = y + 1
+end
+print(out)
+
+"#);
+    expect_test::expect![[r#"
+        XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+        XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+        XXXXXXXXXXXXXXXXXXXXXXXX  XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX  XXXXXXXXXXXXXXXXXXXXXX
+        XXXXXXXXXXXXXXXXXXXX            XXXXXXXXXXXXXXXXXXXXXXXXXX            XXXXXXXXXXXXXXXXXX
+        XXXXXXXXXXXXXXXXXX                  XXXXXXXXXXXXXXXXXX                  XXXXXXXXXXXXXXXX
+        XXXXXXXXXXXXXXXXXX                    XXXXXXXXXXXXXX                    XXXXXXXXXXXXXXXX
+        XXXXXXXXXXXXXXXX                          XXXXXX                          XXXXXXXXXXXXXX
+        XXXXXXXXXXXXXXXX                            XX                            XXXXXXXXXXXXXX
+        XXXXXXXXXXXXXXXX                                                          XXXXXXXXXXXXXX
+        XXXXXXXXXXXXXXXX                                                          XXXXXXXXXXXXXX
+        XXXXXXXXXXXXXXXX                                                          XXXXXXXXXXXXXX
+        XXXXXXXXXXXXXXXXXX                                                      XXXXXXXXXXXXXXXX
+        XXXXXXXXXXXXXXXXXX                                                      XXXXXXXXXXXXXXXX
+        XXXXXXXXXXXXXXXXXX                                                      XXXXXXXXXXXXXXXX
+        XXXXXXXXXXXXXXXXXX                                                      XXXXXXXXXXXXXXXX
+        XXXXXXXXXXXXXXXXXXXX                                                  XXXXXXXXXXXXXXXXXX
+        XXXXXXXXXXXXXXXXXXXX                                                  XXXXXXXXXXXXXXXXXX
+        XXXXXXXXXXXXXXXXXXXX                                                  XXXXXXXXXXXXXXXXXX
+        XXXXXXXXXXXXXXXXXXXXXX                                              XXXXXXXXXXXXXXXXXXXX
+        XXXXXXXXXXXXXXXXXXXXXX                                              XXXXXXXXXXXXXXXXXXXX
+        XXXXXXXXXXXXXXXXXXXXXXXX                                          XXXXXXXXXXXXXXXXXXXXXX
+        XXXXXXXXXXXXXXXXXXXXXXXX                                          XXXXXXXXXXXXXXXXXXXXXX
+        XXXXXXXXXXXXXXXXXXXXXXXX                                          XXXXXXXXXXXXXXXXXXXXXX
+        XXXXXXXXXXXXXXXXXXXXXXXXXX                                      XXXXXXXXXXXXXXXXXXXXXXXX
+        XXXXXXXXXXXXXXXXXXXXXXXXXXXX                                  XXXXXXXXXXXXXXXXXXXXXXXXXX
+        XXXXXXXXXXXXXXXXXXXXXXXXXXXX                                  XXXXXXXXXXXXXXXXXXXXXXXXXX
+        XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX                              XXXXXXXXXXXXXXXXXXXXXXXXXXXX
+        XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX                              XXXXXXXXXXXXXXXXXXXXXXXXXXXX
+        XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX                          XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+        XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX                      XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+        XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX                      XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+        XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX                  XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+        XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX              XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+        XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX          XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+        XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX          XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+        XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX      XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+        XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX  XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+        XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+        XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+        XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+        XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+        XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+        XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+        XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+
+    "#]].assert_eq(&out);
 }
