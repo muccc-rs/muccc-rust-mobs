@@ -12,6 +12,11 @@ pub enum Stmt {
         cond: Expr,
         body: Vec<Stmt>,
     },
+    For {
+        name: String,
+        expr: Expr,
+        body: Vec<Stmt>,
+    },
     DoEnd {
         body: Vec<Stmt>,
     },
@@ -377,7 +382,7 @@ impl LobsterParser {
                     }
                 }
                 self.expect(&Token::ParClose)?;
-                let body = self.parse_block().expect("TODO");
+                let body = self.parse_block()?;
                 self.expect(&Token::Keyword(Keyword::End))?;
                 Ok(Stmt::Assignment {
                     lhs: LeftExpr::Var(function_name),
@@ -400,6 +405,22 @@ impl LobsterParser {
                 let body = self.parse_block().expect("TODO");
                 self.expect(&Token::Keyword(Keyword::End))?;
                 Ok(Stmt::While { cond, body })
+            }
+            Token::Keyword(Keyword::For) => {
+                self.advance()?;
+                let Token::Ident(name) = self.current_tok.clone() else {
+                    return Err(ParserError {
+                        message: "For loop variable name must be an identifier!".to_string(),
+                        pos: self.current_pos,
+                    });
+                };
+                self.advance()?;
+                self.expect(&Token::Keyword(Keyword::In))?;
+                let expr = self.parse_expr()?.expect("TODO");
+                self.expect(&Token::Keyword(Keyword::Do))?;
+                let body = self.parse_block().expect("TODO");
+                self.expect(&Token::Keyword(Keyword::End))?;
+                Ok(Stmt::For { name, expr, body })
             }
             //Do End
             Token::Keyword(Keyword::Do) => {

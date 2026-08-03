@@ -369,7 +369,6 @@ fn io_module() -> Value {
     Value::Table(Rc::new(RefCell::new(m)))
 }
 
-
 fn string_module() -> Value {
     let mut m = HashMap::default();
     m.insert("gmatch".into(), Value::Builtin(Builtin::StringGmatch));
@@ -457,6 +456,17 @@ fn run_block(stmts: &[parser::Stmt], context: &mut Context) -> Result<(), Ret> {
                     }
                 }
             }
+            parser::Stmt::For { name, expr, body } => {
+                let iterator = eval(expr, context);
+                loop {
+                    let elem = evaluate_function(context, Vec::new(), iterator.clone());
+                    if elem == Value::Nil {
+                        break
+                    }
+                    context.insert_local(name.clone(), elem);
+                    run_block(body.as_ref(), context)?;
+                }
+            }
             parser::Stmt::Break => return Err(Ret::Break),
             parser::Stmt::Continue => return Err(Ret::Continue),
             parser::Stmt::Return(exprs) => {
@@ -513,7 +523,10 @@ fn eval(expr: &parser::Expr, context: &mut Context) -> Value {
             }
             .expect("TODO")
         }
-        parser::Expr::Var(ident) => context.get(ident).expect("TODO, value not found").clone(),
+        parser::Expr::Var(ident) => context
+            .get(ident)
+            .unwrap_or_else(|| panic!("TODO, variable {ident:?} not found"))
+            .clone(),
         parser::Expr::FunctionCall { callee, args } => {
             let function = eval(callee, context);
 
@@ -713,7 +726,7 @@ fn evaluate_function(context: &mut Context, evaluated_args: Vec<Value>, function
             };
             let listener = listener.borrow_mut();
             let (stream, _address) = listener.accept().expect("todont");
-            
+
             let h = Value::new_table();
             {
                 let mut t = h.try_as_table().unwrap();
@@ -723,7 +736,6 @@ fn evaluate_function(context: &mut Context, evaluated_args: Vec<Value>, function
                 t.set_elem("close", Value::Builtin(Builtin::TcpStreamClose));
             }
             h
-
         }
         Value::Builtin(Builtin::TcpStreamWrite) => {
             assert_eq!(evaluated_args.len(), 2);
@@ -770,7 +782,7 @@ fn evaluate_function(context: &mut Context, evaluated_args: Vec<Value>, function
 
             let data_as_string = String::from_utf8_lossy(&buf[0..bytes_read]).to_string();
             Value::String(data_as_string)
-        },
+        }
         Value::Builtin(Builtin::TcpStreamClose) => {
             assert_eq!(evaluated_args.len(), 1);
             let h = &evaluated_args[0];
@@ -781,7 +793,7 @@ fn evaluate_function(context: &mut Context, evaluated_args: Vec<Value>, function
             // DROP IT!
             t.set_elem("stream", Value::Nil);
             Value::Nil
-        },
+        }
         Value::Builtin(Builtin::StringGmatch) => {
             assert_eq!(evaluated_args.len(), 2);
             let haystack = evaluated_args[0].try_as_str().expect("bingle");
@@ -796,19 +808,19 @@ fn evaluate_function(context: &mut Context, evaluated_args: Vec<Value>, function
             let Some(rest) = rest.strip_suffix("])") else {
                 panic!("you wish");
             };
-            assert_eq!(rest, " ");
+            assert_eq!(rest.len(), 1);
 
             let mut m = HashMap::default();
-            for (i, v) in haystack.split(" ").enumerate() {
+            for (i, v) in haystack.split(rest).enumerate() {
                 m.insert(Value::Number(i as i64), Value::String(v.into()));
             }
             Value::Table(Rc::new(RefCell::new(m)))
-        },
+        }
         Value::Builtin(Builtin::StringLen) => {
             assert_eq!(evaluated_args.len(), 1);
             let haystack = evaluated_args[0].try_as_str().expect("bingle");
             Value::Number(haystack.len() as i64)
-        },
+        }
 
         x => panic!("{x:?} is not callable"),
     }

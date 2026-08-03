@@ -168,10 +168,58 @@ print2 = print
 print2([[hello]])
 
 os.execute([[uname -a]])
--- TODO
---f = io.open([[/home/rahix/.ssh/id_rsa]], [[r]])
---content = f:read(34000)
---print(content)
+
+fuck = 0
+fuck_tab = nil
+function fake_pairs(tab)
+  fuck = 0
+  fuck_tab = tab
+  return function()
+    local res = fuck_tab[fuck]
+    fuck = fuck + 1
+    return res
+  end
+end
+
+function html_escape(source)
+  -- e.g.
+  -- Input: Foo & bar <code>
+  -- Output: Foo &amp; bar &lt;code>
+  result = [[]]
+  local amp_parts = string.gmatch(source, [==[([^&])]==])
+
+  print([[amp_parts]])
+  print(amp_parts)
+
+
+  first = true
+  for part in fake_pairs(amp_parts) do
+    if first then
+      result = part
+      first = false
+    else
+      result = result .. [[&amp;]] .. part
+    end
+  end
+
+  result2 = [[]]
+  local lt_parts = string.gmatch(result, [==[([^<])]==])
+
+  first = true
+  for part in fake_pairs(lt_parts) do
+    if first then
+      result2 = part
+      first = false
+    else
+      result2 = result2 .. [[&lt;]] .. part
+    end
+  end
+
+  return result2
+end
+
+res = html_escape([[Foo & bar <code>]])
+print([[html escape:]], res)
 
 local v = string.split([[foo bar baz]])
 
@@ -196,12 +244,20 @@ while false ~= true do
     parts = string.split(message)
     if parts[0] == [[GET]] then
       url = parts[1]
+
+      f = io.open([[sample.lua]], [[r]])
+      code = f:read(6767676767)
+      code = html_escape(code)
+
       resp = [[<b>To Whom It May Concern</b>,<br />
 <br />
 you have hereby succesfuly requested the following file:<br />
 <br />
 ]] .. url .. [[<br />
 <br /> 
+<pre><code>
+]] .. code .. [[
+</code></pre>
 Kind Greetings,<br />
 Your 'Lua' Server]]
       len = string.len(resp)
