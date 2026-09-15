@@ -231,6 +231,17 @@ while i ~= 3 do
   i = i + 1
 end
 
+t = table.pack(1,2,3,4,nil,5,6,nil,7,8)
+print([[packed table ]], t)
+
+function multireturn()
+  return 67, VI, VII
+end
+t = table.pack(multireturn())
+print([[packed multi return]], t)
+
+print([[table.unpack]], table.unpack(t))
+
 listener = io.bind([[127.0.0.1:1234]])
 while false ~= true do
   print([[Accepting...]])

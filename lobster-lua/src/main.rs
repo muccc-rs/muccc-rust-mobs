@@ -10,6 +10,7 @@ use std::{any::Any, collections::HashMap};
 use std::fs::{self, read_to_string};
 
 use crate::parser::{LobsterParser, Stmt};
+use crate::tokenizer::Token::Hash;
 
 #[cfg(test)]
 mod e2e;
@@ -36,6 +37,8 @@ pub enum Builtin {
     TcpStreamClose,
     StringGmatch,
     StringLen,
+    TablePack,
+    TableUnpack,
 }
 
 #[derive(Debug, Clone)]
@@ -66,6 +69,18 @@ impl TableMut<'_> {
 
     fn set_elem(&mut self, name: &str, value: Value) {
         self.0.insert(Value::new_string(name), value);
+    }
+
+    fn get(&self, key: &Value) -> Option<Value> {
+        self.0.get(key).cloned()
+    }
+
+    fn set(&mut self, key: Value, value: Value) {
+        if value == Value::Nil {
+            self.0.remove(&key);
+        } else {
+            self.0.insert(key, value);
+        }
     }
 }
 
@@ -376,12 +391,20 @@ fn string_module() -> Value {
     Value::Table(Rc::new(RefCell::new(m)))
 }
 
+fn table_module() -> Value {
+    let mut m = HashMap::default();
+    m.insert("pack".into(), Value::Builtin(Builtin::TablePack));
+    m.insert("unpack".into(), Value::Builtin(Builtin::TableUnpack));
+    Value::Table(Rc::new(RefCell::new(m)))
+}
+
 fn default_globals() -> HashMap<String, Value> {
     let mut globals: HashMap<String, Value> = Default::default();
     globals.insert("print".to_string(), Value::Builtin(Builtin::Print));
     globals.insert("os".to_string(), os_module());
     globals.insert("io".to_string(), io_module());
     globals.insert("string".to_string(), string_module());
+    globals.insert("table".to_string(), table_module());
     globals
 }
 
@@ -408,7 +431,7 @@ fn main() {
 enum Ret {
     Continue,
     Break,
-    Return(Value),
+    Return(Vec<Value>),
 }
 
 fn run_block(stmts: &[parser::Stmt], context: &mut Context) -> Result<(), Ret> {
@@ -459,9 +482,12 @@ fn run_block(stmts: &[parser::Stmt], context: &mut Context) -> Result<(), Ret> {
             parser::Stmt::For { name, expr, body } => {
                 let iterator = eval(expr, context);
                 loop {
-                    let elem = evaluate_function(context, Vec::new(), iterator.clone());
+                    let elem = evaluate_function(context, Vec::new(), iterator.clone())
+                        .get(0)
+                        .cloned()
+                        .unwrap_or(Value::Nil);
                     if elem == Value::Nil {
-                        break
+                        break;
                     }
                     context.insert_local(name.clone(), elem);
                     run_block(body.as_ref(), context)?;
@@ -470,8 +496,8 @@ fn run_block(stmts: &[parser::Stmt], context: &mut Context) -> Result<(), Ret> {
             parser::Stmt::Break => return Err(Ret::Break),
             parser::Stmt::Continue => return Err(Ret::Continue),
             parser::Stmt::Return(exprs) => {
-                let mut values: Vec<_> = exprs.iter().map(|expr| eval(expr, context)).collect();
-                return Err(Ret::Return(values.remove(0)));
+                let values: Vec<_> = exprs.iter().map(|expr| eval(expr, context)).collect();
+                return Err(Ret::Return(values));
             }
             parser::Stmt::DoEnd { body } => run_block(body, context)?,
             parser::Stmt::Expr { expr } => {
@@ -483,22 +509,29 @@ fn run_block(stmts: &[parser::Stmt], context: &mut Context) -> Result<(), Ret> {
 }
 
 fn eval(expr: &parser::Expr, context: &mut Context) -> Value {
+    eval_multi(expr, context)
+        .get(0)
+        .cloned()
+        .unwrap_or(Value::Nil)
+}
+
+fn eval_multi(expr: &parser::Expr, context: &mut Context) -> Vec<Value> {
     match expr {
-        parser::Expr::Nil => Value::Nil,
-        parser::Expr::Numeral(i) => Value::Number(*i),
-        parser::Expr::Fraction(f) => Value::Fraction(*f),
-        parser::Expr::Boolean(b) => Value::Bool(*b),
-        parser::Expr::String(s) => Value::String(s.clone()),
+        parser::Expr::Nil => vec![Value::Nil],
+        parser::Expr::Numeral(i) => vec![Value::Number(*i)],
+        parser::Expr::Fraction(f) => vec![Value::Fraction(*f)],
+        parser::Expr::Boolean(b) => vec![Value::Bool(*b)],
+        parser::Expr::String(s) => vec![Value::String(s.clone())],
         parser::Expr::BinOp { op, lhs, rhs } => {
             let lhs = eval(lhs, context);
             if let (parser::BinOp::And, Value::Bool(false)) = (op, &lhs) {
-                return Value::Bool(false);
+                return vec![Value::Bool(false)];
             }
             if let (parser::BinOp::Or, Value::Bool(true)) = (op, &lhs) {
-                return Value::Bool(true);
+                return vec![Value::Bool(true)];
             }
             let rhs = eval(rhs, context);
-            match op {
+            let res = match op {
                 parser::BinOp::Plus => lhs.add(rhs),
                 parser::BinOp::Minus => lhs.sub(rhs),
                 parser::BinOp::Mul => lhs.mul(rhs),
@@ -521,16 +554,27 @@ fn eval(expr: &parser::Expr, context: &mut Context) -> Value {
                 parser::BinOp::NotEquals => Ok(Value::Bool(!lhs.eq(&rhs))),
                 parser::BinOp::Concat => lhs.concat(rhs),
             }
-            .expect("TODO")
+            .expect("TODO");
+            vec![res]
         }
-        parser::Expr::Var(ident) => context
-            .get(ident)
-            .unwrap_or_else(|| panic!("TODO, variable {ident:?} not found"))
-            .clone(),
+        parser::Expr::Var(ident) => vec![
+            context
+                .get(ident)
+                .unwrap_or_else(|| panic!("TODO, variable {ident:?} not found"))
+                .clone(),
+        ],
         parser::Expr::FunctionCall { callee, args } => {
             let function = eval(callee, context);
 
-            let evaluated_args: Vec<_> = args.into_iter().map(|arg| eval(arg, context)).collect();
+            // TODO skadhskdh: Refactor
+            let mut evaluated_args: Vec<_> = if let Some((last, first)) = args.split_last() {
+                let mut evaluated_args_inner: Vec<_> =
+                    first.iter().map(|arg| eval(arg, context)).collect();
+                evaluated_args_inner.append(&mut eval_multi(last, context));
+                evaluated_args_inner
+            } else {
+                vec![]
+            };
 
             evaluate_function(context, evaluated_args, function)
         }
@@ -541,7 +585,16 @@ fn eval(expr: &parser::Expr, context: &mut Context) -> Value {
         } => {
             let object = eval(callee, context);
 
-            let mut evaluated_args: Vec<_> = args.iter().map(|arg| eval(arg, context)).collect();
+            // TODO skadhskdh: Refactor
+            let mut evaluated_args: Vec<_> = if let Some((last, first)) = args.split_last() {
+                let mut evaluated_args_inner: Vec<_> =
+                    first.iter().map(|arg| eval(arg, context)).collect();
+                evaluated_args_inner.append(&mut eval_multi(last, context));
+                evaluated_args_inner
+            } else {
+                vec![]
+            };
+
             let function = object
                 .get(&Value::String(method_name.clone()))
                 .expect("todo");
@@ -549,32 +602,37 @@ fn eval(expr: &parser::Expr, context: &mut Context) -> Value {
             evaluated_args.insert(0, object);
             evaluate_function(context, evaluated_args, function)
         }
-        parser::Expr::FunctionDef { arguments, body } => Value::Closure {
+        parser::Expr::FunctionDef { arguments, body } => vec![Value::Closure {
             params: arguments.clone(),
             body: body.clone(),
-        },
+        }],
         parser::Expr::Table { values } => {
             let mut map = HashMap::new();
             for (key, value) in values {
                 map.insert(eval(key, context), eval(value, context));
             }
-            Value::Table(Rc::new(RefCell::new(map)))
+            vec![Value::Table(Rc::new(RefCell::new(map)))]
         }
         parser::Expr::TableIndex { table, index } => {
             let t = eval(table, context);
             match t {
-                Value::Table(map) => map
-                    .borrow()
-                    .get(&eval(index, context))
-                    .cloned()
-                    .unwrap_or(Value::Nil),
+                Value::Table(map) => vec![
+                    map.borrow()
+                        .get(&eval(index, context))
+                        .cloned()
+                        .unwrap_or(Value::Nil),
+                ],
                 _ => panic!("not a table"),
             }
         }
     }
 }
 
-fn evaluate_function(context: &mut Context, evaluated_args: Vec<Value>, function: Value) -> Value {
+fn evaluate_function(
+    context: &mut Context,
+    evaluated_args: Vec<Value>,
+    function: Value,
+) -> Vec<Value> {
     match function {
         Value::Closure { params, body } => {
             context.enter_scope();
@@ -589,7 +647,7 @@ fn evaluate_function(context: &mut Context, evaluated_args: Vec<Value>, function
             let return_val = run_block(&body.clone() /* TODO: get rid of clone */, context);
             context.leave_scope();
             match return_val {
-                Ok(()) => Value::Nil,
+                Ok(()) => vec![],
                 Err(Ret::Return(x)) => x,
                 Err(_) => panic!("break or continue outside of loop {return_val:?}"),
             }
@@ -603,7 +661,7 @@ fn evaluate_function(context: &mut Context, evaluated_args: Vec<Value>, function
             line.push('\n');
 
             write!(context.stdout, "{line}").expect("write failed!");
-            Value::Nil
+            vec![]
         }
         Value::Builtin(Builtin::Execute) => {
             assert_eq!(evaluated_args.len(), 1);
@@ -625,7 +683,7 @@ fn evaluate_function(context: &mut Context, evaluated_args: Vec<Value>, function
                         .unwrap();
                 }
             }
-            Value::Nil
+            vec![Value::Nil]
         }
         Value::Builtin(Builtin::FileOpen) => {
             assert_eq!(evaluated_args.len(), 2);
@@ -652,7 +710,7 @@ fn evaluate_function(context: &mut Context, evaluated_args: Vec<Value>, function
                 t.set_elem("read", Value::Builtin(Builtin::FileRead));
                 t.set_elem("write", Value::Builtin(Builtin::FileWrite));
             }
-            h
+            vec![h]
         }
         Value::Builtin(Builtin::FileWrite) => {
             assert_eq!(evaluated_args.len(), 2);
@@ -687,14 +745,14 @@ fn evaluate_function(context: &mut Context, evaluated_args: Vec<Value>, function
             let bytes_read = file_handle.read(&mut buf[0..len]).expect("no read no good");
 
             let data_as_string = String::from_utf8_lossy(&buf[0..bytes_read]).to_string();
-            Value::String(data_as_string)
+            vec![Value::String(data_as_string)]
         }
         Value::Builtin(Builtin::Fork) => {
             unsafe extern "C" {
                 unsafe fn fork() -> isize;
             }
             let r = unsafe { fork() };
-            Value::Number(r.try_into().expect("TODO"))
+            vec![Value::Number(r.try_into().expect("TODO"))]
         }
         Value::Builtin(Builtin::Bind) => {
             assert_eq!(evaluated_args.len(), 1);
@@ -712,7 +770,7 @@ fn evaluate_function(context: &mut Context, evaluated_args: Vec<Value>, function
                 t.set_elem("listener", file);
                 t.set_elem("accept", Value::Builtin(Builtin::Accept));
             }
-            h
+            vec![h]
         }
         Value::Builtin(Builtin::Accept) => {
             assert_eq!(evaluated_args.len(), 1);
@@ -735,7 +793,7 @@ fn evaluate_function(context: &mut Context, evaluated_args: Vec<Value>, function
                 t.set_elem("write", Value::Builtin(Builtin::TcpStreamWrite));
                 t.set_elem("close", Value::Builtin(Builtin::TcpStreamClose));
             }
-            h
+            vec![h]
         }
         Value::Builtin(Builtin::TcpStreamWrite) => {
             assert_eq!(evaluated_args.len(), 2);
@@ -756,7 +814,7 @@ fn evaluate_function(context: &mut Context, evaluated_args: Vec<Value>, function
 
             let mut stream = stream.borrow_mut();
             let written = stream.write(&buf).expect("bingle my bongle");
-            Value::Number(written as i64)
+            vec![Value::Number(written as i64)]
         }
         Value::Builtin(Builtin::TcpStreamRead) => {
             assert_eq!(evaluated_args.len(), 2);
@@ -781,7 +839,7 @@ fn evaluate_function(context: &mut Context, evaluated_args: Vec<Value>, function
             let bytes_read = stream.read(&mut buf[0..len]).expect("no read no good");
 
             let data_as_string = String::from_utf8_lossy(&buf[0..bytes_read]).to_string();
-            Value::String(data_as_string)
+            vec![Value::String(data_as_string)]
         }
         Value::Builtin(Builtin::TcpStreamClose) => {
             assert_eq!(evaluated_args.len(), 1);
@@ -792,7 +850,7 @@ fn evaluate_function(context: &mut Context, evaluated_args: Vec<Value>, function
 
             // DROP IT!
             t.set_elem("stream", Value::Nil);
-            Value::Nil
+            vec![]
         }
         Value::Builtin(Builtin::StringGmatch) => {
             assert_eq!(evaluated_args.len(), 2);
@@ -810,18 +868,48 @@ fn evaluate_function(context: &mut Context, evaluated_args: Vec<Value>, function
             };
             assert_eq!(rest.len(), 1);
 
-            let mut m = HashMap::default();
-            for (i, v) in haystack.split(rest).enumerate() {
-                m.insert(Value::Number(i as i64), Value::String(v.into()));
+            let m = Value::new_table();
+            {
+                let mut table = m.try_as_table().unwrap();
+                for (i, v) in haystack.split(rest).enumerate() {
+                    table.set(Value::Number(i as i64), Value::String(v.into()));
+                }
             }
-            Value::Table(Rc::new(RefCell::new(m)))
+            vec![m]
         }
         Value::Builtin(Builtin::StringLen) => {
             assert_eq!(evaluated_args.len(), 1);
             let haystack = evaluated_args[0].try_as_str().expect("bingle");
-            Value::Number(haystack.len() as i64)
+            vec![Value::Number(haystack.len() as i64)]
         }
-
+        Value::Builtin(Builtin::TablePack) => {
+            let table = Value::new_table();
+            {
+                let mut table_mut = table.try_as_table().unwrap();
+                for (i, v) in evaluated_args.iter().enumerate() {
+                    table_mut.set(Value::Number(i64::try_from(i).unwrap()), v.clone());
+                }
+                table_mut.set(
+                    Value::String("n".to_string()),
+                    Value::Number(i64::try_from(evaluated_args.len()).unwrap()),
+                );
+            }
+            vec![table]
+        }
+        Value::Builtin(Builtin::TableUnpack) => {
+            assert_eq!(evaluated_args.len(), 1);
+            let h = &evaluated_args[0];
+            let t = h
+                .try_as_table()
+                .expect("TODO: expected a file table thingy");
+            let mut vals = vec![];
+            let mut i = 0;
+            while let Some(v) = t.get(&Value::Number(i)) {
+                vals.push(v);
+                i = i + 1;
+            }
+            vals
+        }
         x => panic!("{x:?} is not callable"),
     }
 }

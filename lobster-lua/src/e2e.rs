@@ -60,7 +60,8 @@ print(S∷)
         2/3
         3/4
         5/6
-    "#]).assert_eq(&out);
+    "#])
+    .assert_eq(&out);
 }
 
 #[test]
@@ -88,7 +89,8 @@ fn tables() {
         2
         3
         nil
-    "#]].assert_eq(&out);
+    "#]]
+    .assert_eq(&out);
 }
 
 #[test]
@@ -102,7 +104,8 @@ fn test_break() {
     "#);
     expect_test::expect![[r#"
         1
-    "#]].assert_eq(&out);
+    "#]]
+    .assert_eq(&out);
 }
 
 #[test]
@@ -120,7 +123,8 @@ fn test_continue() {
     "#);
     expect_test::expect![[r#"
         2
-    "#]].assert_eq(&out);
+    "#]]
+    .assert_eq(&out);
 }
 
 #[test]
@@ -198,5 +202,6 @@ print(out)
         XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
         XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
-    "#]].assert_eq(&out);
+    "#]]
+    .assert_eq(&out);
 }
