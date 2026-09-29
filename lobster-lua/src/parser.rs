@@ -13,7 +13,7 @@ pub enum Stmt {
         body: Vec<Stmt>,
     },
     For {
-        name: String,
+        names: Vec<String>,
         expr: Expr,
         body: Vec<Stmt>,
     },
@@ -21,7 +21,7 @@ pub enum Stmt {
         body: Vec<Stmt>,
     },
     Assignment {
-        lhs: LeftExpr,
+        lhs: Vec<LeftExpr>,
         rhs: Expr,
         local: bool,
     },
@@ -385,7 +385,7 @@ impl LobsterParser {
                 let body = self.parse_block()?;
                 self.expect(&Token::Keyword(Keyword::End))?;
                 Ok(Stmt::Assignment {
-                    lhs: LeftExpr::Var(function_name),
+                    lhs: vec![LeftExpr::Var(function_name)],
                     rhs: Expr::FunctionDef { arguments, body },
                     local: false,
                 })
@@ -415,12 +415,26 @@ impl LobsterParser {
                     });
                 };
                 self.advance()?;
+
+                let mut names = vec![name];
+                while self.current_tok == Token::Comma {
+                    self.advance()?;
+                    let Token::Ident(name) = self.current_tok.clone() else {
+                        return Err(ParserError {
+                            message: "expected variable name".to_string(),
+                            pos: self.current_pos,
+                        });
+                    };
+                    self.advance()?;
+                    names.push(name);
+                }
+
                 self.expect(&Token::Keyword(Keyword::In))?;
                 let expr = self.parse_expr()?.expect("TODO");
                 self.expect(&Token::Keyword(Keyword::Do))?;
                 let body = self.parse_block().expect("TODO");
                 self.expect(&Token::Keyword(Keyword::End))?;
-                Ok(Stmt::For { name, expr, body })
+                Ok(Stmt::For { names, expr, body })
             }
             //Do End
             Token::Keyword(Keyword::Do) => {
@@ -488,18 +502,29 @@ impl LobsterParser {
             }
             Token::Keyword(Keyword::Local) => {
                 self.advance()?;
+                let mut idents = Vec::new();
                 let Token::Ident(ident) = self.current_tok.clone() else {
                     return Err(ParserError {
                         message: "expected variable name".to_string(),
                         pos: self.current_pos,
                     });
                 };
+                idents.push(LeftExpr::Var(ident));
                 self.advance()?;
+                while self.current_tok == Token::Comma {
+                    self.advance()?;
+                    let Token::Ident(ident) = self.current_tok.clone() else {
+                        return Err(ParserError {
+                            message: "expected variable name".to_string(),
+                            pos: self.current_pos,
+                        });
+                    };
+                    idents.push(LeftExpr::Var(ident));
+                }
                 self.expect(&Token::Equals)?;
-                let variable = ident;
                 let value = self.parse_expr()?.expect("todo");
                 Ok(Stmt::Assignment {
-                    lhs: LeftExpr::Var(variable),
+                    lhs: idents,
                     rhs: value,
                     local: true,
                 })
@@ -511,15 +536,35 @@ impl LobsterParser {
                         self.advance()?;
                         let value = self.parse_expr()?.expect("todo");
                         Ok(Stmt::Assignment {
-                            lhs: e.try_into().expect(
+                            lhs: vec![e.try_into().expect(
                                 "left-hand side of assignment must be a variable or table index",
-                            ),
+                            )],
                             rhs: value,
                             local: false,
                         })
                     }
                     Token::Comma => {
-                        todo!("a,b = c,d");
+                        let mut idents = vec![e.try_into().expect(
+                            "left-hand side of assignment must be a variable or table index",
+                        )];
+                        while self.current_tok == Token::Comma {
+                            self.advance()?;
+                            let Token::Ident(ident) = self.current_tok.clone() else {
+                                return Err(ParserError {
+                                    message: "expected variable name".to_string(),
+                                    pos: self.current_pos,
+                                });
+                            };
+                            self.advance()?;
+                            idents.push(LeftExpr::Var(ident));
+                        }
+                        self.expect(&Token::Equals)?;
+                        let value = self.parse_expr()?.expect("todo");
+                        Ok(Stmt::Assignment {
+                            lhs: idents,
+                            rhs: value,
+                            local: false,
+                        })
                     }
                     _ => match e {
                         Expr::FunctionCall { .. } => Ok(Stmt::Expr { expr: e }),

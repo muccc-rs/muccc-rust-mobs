@@ -169,15 +169,24 @@ print2([[hello]])
 
 os.execute([[uname -a]])
 
-fuck = 0
-fuck_tab = nil
-function fake_pairs(tab)
-  fuck = 0
-  fuck_tab = tab
+-- fuck = 0
+-- fuck_tab = nil
+function real_pairs(tab)
+  local fuck = 0
+  local fuck_tab = tab
   return function()
     local res = fuck_tab[fuck]
     fuck = fuck + 1
-    return res
+    return res, fuck
+  end
+end
+
+print([[Nested Loops:]])
+t = {{1, 2, 3}, {4, 5, 6}}
+for x in real_pairs(t) do
+  print(x)
+  for y in real_pairs(x) do
+    print(y)
   end
 end
 
@@ -193,7 +202,7 @@ function html_escape(source)
 
 
   first = true
-  for part in fake_pairs(amp_parts) do
+  for part in real_pairs(amp_parts) do
     if first then
       result = part
       first = false
@@ -206,7 +215,7 @@ function html_escape(source)
   local lt_parts = string.gmatch(result, [==[([^<])]==])
 
   first = true
-  for part in fake_pairs(lt_parts) do
+  for part in real_pairs(lt_parts) do
     if first then
       result2 = part
       first = false
@@ -231,6 +240,28 @@ while i ~= 3 do
   i = i + 1
 end
 
+-- locals check
+function foo1()
+  local var1 = 42
+
+  function foo2()
+    local var2 = 23
+
+    function foo3()
+      local var3 = var1 + var2
+      var1 = 67
+      return var3
+    end
+    return foo3
+  end
+
+  local fun = foo2()
+  local ret = fun()
+  print([[Inner var1 after modification:]], var1)
+  print([[Returned:]], ret)
+end
+fun = foo1()
+
 t = table.pack(1,2,3,4,nil,5,6,nil,7,8)
 print([[packed table ]], t)
 
@@ -239,6 +270,13 @@ function multireturn()
 end
 t = table.pack(multireturn())
 print([[packed multi return]], t)
+
+a, b, c = multireturn()
+print([[a]], a, [[b]], b, [[c]], c)
+
+for v, i in real_pairs(t) do
+  print([[i]], i, [[v]], v)
+end
 
 print([[table.unpack]], table.unpack(t))
 

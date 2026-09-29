@@ -49,6 +49,7 @@ pub enum Value {
     String(String),
     Bool(bool),
     Closure {
+        captures: HashMap<String, Rc<RefCell<Value>>>,
         params: Vec<String>,
         body: Vec<Stmt>,
     },
@@ -121,6 +122,7 @@ impl PartialEq for Value {
         match (self, other) {
             (Self::Nil, Self::Nil) => true,
             (Self::Nil, _) => false,
+            (_, Self::Nil) => false,
             (Self::Number(l0), Self::Number(r0)) => l0 == r0,
             (Self::Number(_), _) => false,
             (Self::Fraction(l0), Self::Fraction(r0)) => l0 == r0,
@@ -131,16 +133,6 @@ impl PartialEq for Value {
             (Self::Bool(_), _) => false,
             (Self::Builtin(l0), Self::Builtin(r0)) => l0 == r0,
             (Self::Builtin(_), _) => false,
-            (
-                Self::Closure {
-                    params: l_params,
-                    body: l_body,
-                },
-                Self::Closure {
-                    params: r_params,
-                    body: r_body,
-                },
-            ) => l_params == r_params && l_body == r_body, // TODO: compare by pointer
             (Self::Closure { .. }, _) => false,
             (Self::Table(_), _) => todo!("No time, sorry"),
             (Self::FsFile(_), _) => todo!("dont go comparing your files kids"),
@@ -160,7 +152,11 @@ impl std::hash::Hash for Value {
             Value::String(s) => s.hash(state),
             Value::Bool(_) => todo!(),
             Value::Builtin(b) => b.hash(state),
-            Value::Closure { params: _, body: _ } => todo!(),
+            Value::Closure {
+                captures: _,
+                params: _,
+                body: _,
+            } => todo!(),
             Value::Table(_hash_map) => todo!(),
             Value::FsFile(_file) => todo!(),
             Value::TcpListener(_listener) => todo!(),
@@ -178,7 +174,11 @@ impl std::fmt::Display for Value {
             Value::String(s) => write!(f, "{s}"),
             Value::Bool(b) => write!(f, "{b}"),
             Value::Builtin(b) => write!(f, "function {b:?}"),
-            Value::Closure { params, body: _ } => write!(f, "function {params:#?}"),
+            Value::Closure {
+                captures: _,
+                params,
+                body: _,
+            } => write!(f, "function {params:#?}"),
             Value::Table(hash_map) => write!(f, "{hash_map:?}"),
             Value::FsFile(file) => write!(f, "fiel {file:?}"),
             Value::TcpListener(listener) => write!(f, "listener, your mom: {listener:?}"),
@@ -339,34 +339,64 @@ impl<T> StdOut for T where T: Any + std::io::Write {}
 
 pub struct Context {
     stdout: Box<dyn StdOut>,
-    globals: HashMap<String, Value>,
-    locals: Vec<HashMap<String, Value>>,
+    globals: HashMap<String, Rc<RefCell<Value>>>,
+    locals: Vec<HashMap<String, Rc<RefCell<Value>>>>,
 }
 
 impl Context {
     pub fn get(&self, name: &str) -> Option<Value> {
         for scope in self.locals.iter().rev() {
             if let Some(val) = scope.get(name) {
-                return Some(val.clone());
+                return Some(val.borrow().clone());
             }
         }
-        self.globals.get(name).cloned()
+        self.globals.get(name).map(|v| v.borrow().clone())
     }
 
-    pub fn insert_global(&mut self, name: String, value: Value) {
-        self.globals.insert(name, value);
+    pub fn insert(&mut self, name: String, value: Value) {
+        use std::collections::hash_map::Entry;
+        for scope in self.locals.iter().rev() {
+            if let Some(val) = scope.get(&name) {
+                *val.borrow_mut() = value;
+                return;
+            }
+        }
+
+        match self.globals.entry(name) {
+            Entry::Occupied(mut occupied_entry) => {
+                *occupied_entry.get_mut().borrow_mut() = value;
+            }
+            Entry::Vacant(vacant_entry) => {
+                vacant_entry.insert(Rc::new(RefCell::new(value)));
+            }
+        }
     }
 
     pub fn insert_local(&mut self, name: String, value: Value) {
-        self.locals.last_mut().unwrap().insert(name, value);
+        self.locals
+            .last_mut()
+            .unwrap()
+            .insert(name, Rc::new(RefCell::new(value)));
     }
 
     pub fn enter_scope(&mut self) {
         self.locals.push(HashMap::new());
     }
 
+    pub fn enter_scope_with_captures(&mut self, captures: HashMap<String, Rc<RefCell<Value>>>) {
+        self.locals.push(captures);
+    }
+
     pub fn leave_scope(&mut self) {
         self.locals.pop();
+    }
+
+    pub fn dump_locals(&self) -> HashMap<String, Rc<RefCell<Value>>> {
+        let mut all_the_locals = HashMap::new();
+        for scope in self.locals.iter().rev() {
+            all_the_locals.extend(scope.clone().into_iter());
+        }
+        all_the_locals
     }
 }
 
@@ -398,13 +428,16 @@ fn table_module() -> Value {
     Value::Table(Rc::new(RefCell::new(m)))
 }
 
-fn default_globals() -> HashMap<String, Value> {
-    let mut globals: HashMap<String, Value> = Default::default();
-    globals.insert("print".to_string(), Value::Builtin(Builtin::Print));
-    globals.insert("os".to_string(), os_module());
-    globals.insert("io".to_string(), io_module());
-    globals.insert("string".to_string(), string_module());
-    globals.insert("table".to_string(), table_module());
+fn default_globals() -> HashMap<String, Rc<RefCell<Value>>> {
+    let mut globals: HashMap<String, Rc<RefCell<Value>>> = Default::default();
+    globals.insert(
+        "print".to_string(),
+        Rc::new(RefCell::new(Value::Builtin(Builtin::Print))),
+    );
+    globals.insert("os".to_string(), Rc::new(RefCell::new(os_module())));
+    globals.insert("io".to_string(), Rc::new(RefCell::new(io_module())));
+    globals.insert("string".to_string(), Rc::new(RefCell::new(string_module())));
+    globals.insert("table".to_string(), Rc::new(RefCell::new(table_module())));
     globals
 }
 
@@ -443,21 +476,23 @@ fn run_block(stmts: &[parser::Stmt], context: &mut Context) -> Result<(), Ret> {
                 rhs: value,
                 local,
             } => {
-                let res = eval(value, context);
-                match lhs {
-                    parser::LeftExpr::Var(variable) => {
-                        if *local {
-                            context.insert_local(variable.clone(), res);
-                        } else {
-                            context.insert_global(variable.clone(), res);
+                let results = eval_multi(value, context);
+                for (lhs_entry, res) in lhs.iter().zip(results) {
+                    match lhs_entry {
+                        parser::LeftExpr::Var(variable) => {
+                            if *local {
+                                context.insert_local(variable.clone(), res);
+                            } else {
+                                context.insert(variable.clone(), res);
+                            }
                         }
-                    }
-                    parser::LeftExpr::TableIndex { table, index } => {
-                        let Value::Table(table) = eval(table, context) else {
-                            panic!("Indexing into not a table");
-                        };
-                        let index = eval(index, context);
-                        table.borrow_mut().insert(index, res);
+                        parser::LeftExpr::TableIndex { table, index } => {
+                            let Value::Table(table) = eval(table, context) else {
+                                panic!("Indexing into not a table");
+                            };
+                            let index = eval(index, context);
+                            table.borrow_mut().insert(index, res);
+                        }
                     }
                 }
             }
@@ -479,17 +514,17 @@ fn run_block(stmts: &[parser::Stmt], context: &mut Context) -> Result<(), Ret> {
                     }
                 }
             }
-            parser::Stmt::For { name, expr, body } => {
+            parser::Stmt::For { names, expr, body } => {
                 let iterator = eval(expr, context);
                 loop {
-                    let elem = evaluate_function(context, Vec::new(), iterator.clone())
-                        .get(0)
-                        .cloned()
-                        .unwrap_or(Value::Nil);
-                    if elem == Value::Nil {
+                    let elems = evaluate_function(context, Vec::new(), iterator.clone());
+                    let first = elems.get(0).unwrap_or(&Value::Nil);
+                    if first == &Value::Nil {
                         break;
                     }
-                    context.insert_local(name.clone(), elem);
+                    for (name, elem) in names.iter().zip(elems.into_iter()) {
+                        context.insert_local(name.clone(), elem);
+                    }
                     run_block(body.as_ref(), context)?;
                 }
             }
@@ -603,6 +638,7 @@ fn eval_multi(expr: &parser::Expr, context: &mut Context) -> Vec<Value> {
             evaluate_function(context, evaluated_args, function)
         }
         parser::Expr::FunctionDef { arguments, body } => vec![Value::Closure {
+            captures: context.dump_locals(),
             params: arguments.clone(),
             body: body.clone(),
         }],
@@ -634,8 +670,12 @@ fn evaluate_function(
     function: Value,
 ) -> Vec<Value> {
     match function {
-        Value::Closure { params, body } => {
-            context.enter_scope();
+        Value::Closure {
+            captures,
+            params,
+            body,
+        } => {
+            context.enter_scope_with_captures(captures.clone());
             assert_eq!(
                 params.len(),
                 evaluated_args.len(),
