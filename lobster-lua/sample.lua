@@ -183,11 +183,22 @@ end
 
 print([[Nested Loops:]])
 t = {{1, 2, 3}, {4, 5, 6}}
-for x in real_pairs(t) do
+for x in pairs(t) do
   print(x)
-  for y in real_pairs(x) do
+  for y in pairs(x) do
     print(y)
   end
+end
+
+print([[Is it pairs()??]])
+t = { 
+  a = 1,
+  b = 2,
+  c = 3,
+}
+print(t)
+for k, v in pairs(t) do
+  print(k, [[=]], v)
 end
 
 function html_escape(source)
@@ -298,22 +309,32 @@ while false ~= true do
       code = f:read(6767676767)
       code = html_escape(code)
 
-      resp = [[<b>To Whom It May Concern</b>,<br />
-<br />
-you have hereby succesfuly requested the following file:<br />
-<br />
-]] .. url .. [[<br />
-<br /> 
-<pre><code>
-]] .. code .. [[
-</code></pre>
-Kind Greetings,<br />
-Your 'Lua' Server]]
+      resp = [[
+<html>
+  <head>
+    <meta charset="UTF-8" />
+  </head>
+  <body>
+    <b>To Whom It May Concern</b>,<br />
+    <br />
+    you have hereby succesfuly requested the following file:<br />
+    <br />
+    ]] .. url .. [[<br />
+    <br /> 
+    <pre><code>
+    ]] .. code .. [[
+    </code></pre>
+    Kind Greetings,<br />
+    Your 'Lua' Server
+  </body>
+</html>
+]]
       len = string.len(resp)
 
       stream:write([[HTTP/1.1 200 OK
 Server: lau
 Connection: close
+Encoding: 
 Content-Length: ]] .. len .. [[
 
 ]] .. resp .. [[

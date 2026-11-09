@@ -288,6 +288,32 @@ impl LobsterParser {
         }
     }
 
+    pub fn parse_expr_from_string(source: String) -> ParseResult<Expr> {
+        let mut tokenizer = Tokenizer::new(source);
+        let (current_tok, current_pos) = tokenizer.next_token().map_err(|e| ParserError {
+            message: e.message,
+            pos: e.pos,
+        })?; // anchor: yagEGIQ2
+        let mut this = Self {
+            current_tok,
+            current_pos,
+            tokenizer,
+        };
+
+        let res = this.parse_expr()?.ok_or_else(|| ParserError {
+            message: "not an expression".to_string(),
+            pos: 0,
+        })?;
+        if this.current_tok == Token::EOF {
+            Ok(res)
+        } else {
+            Err(ParserError {
+                message: format!("Expected EOF, found {:?}", this.current_tok),
+                pos: this.current_pos,
+            })
+        }
+    }
+
     fn advance(&mut self) -> ParseResult<()> {
         println!("advance");
         let (current_tok, current_pos) = self.tokenizer.next_token().map_err(|e| ParserError {

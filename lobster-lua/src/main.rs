@@ -10,7 +10,6 @@ use std::{any::Any, collections::HashMap};
 use std::fs::{self, read_to_string};
 
 use crate::parser::{LobsterParser, Stmt};
-use crate::tokenizer::Token::Hash;
 
 #[cfg(test)]
 mod e2e;
@@ -19,6 +18,9 @@ mod errortest;
 mod fraction;
 mod parser;
 mod tokenizer;
+mod linked_hash_map;
+
+use linked_hash_map::LinkedHashMap;
 
 use fraction::Fraction;
 
@@ -39,6 +41,7 @@ pub enum Builtin {
     StringLen,
     TablePack,
     TableUnpack,
+    Next,
 }
 
 #[derive(Debug, Clone)]
@@ -54,13 +57,13 @@ pub enum Value {
         body: Vec<Stmt>,
     },
     Builtin(Builtin),
-    Table(Rc<RefCell<HashMap<Value, Value>>>),
+    Table(Rc<RefCell<LinkedHashMap<Value, Value>>>),
     FsFile(Rc<RefCell<fs::File>>),
     TcpStream(Rc<RefCell<std::net::TcpStream>>),
     TcpListener(Rc<RefCell<std::net::TcpListener>>),
 }
 
-pub struct TableMut<'a>(std::cell::RefMut<'a, HashMap<Value, Value>>);
+pub struct TableMut<'a>(std::cell::RefMut<'a, LinkedHashMap<Value, Value>>);
 // pub struct TableRef<'a>(std::cell::Ref<'a, HashMap<Value, Value>>);
 
 impl TableMut<'_> {
@@ -82,6 +85,10 @@ impl TableMut<'_> {
         } else {
             self.0.insert(key, value);
         }
+    }
+    
+    fn next(&self, key: Option<Value>) -> Option<(Value, Value)> {
+        self.0.next(key.as_ref()).map(|(k,v)| (k.clone(), v.clone()))
     }
 }
 
@@ -401,28 +408,28 @@ impl Context {
 }
 
 fn os_module() -> Value {
-    let mut m = HashMap::default();
+    let mut m = LinkedHashMap::default();
     m.insert("execute".into(), Value::Builtin(Builtin::Execute));
     m.insert("fork".into(), Value::Builtin(Builtin::Fork));
     Value::Table(Rc::new(RefCell::new(m)))
 }
 
 fn io_module() -> Value {
-    let mut m = HashMap::default();
+    let mut m = LinkedHashMap::default();
     m.insert("open".into(), Value::Builtin(Builtin::FileOpen));
     m.insert("bind".into(), Value::Builtin(Builtin::Bind));
     Value::Table(Rc::new(RefCell::new(m)))
 }
 
 fn string_module() -> Value {
-    let mut m = HashMap::default();
+    let mut m = LinkedHashMap::default();
     m.insert("gmatch".into(), Value::Builtin(Builtin::StringGmatch));
     m.insert("len".into(), Value::Builtin(Builtin::StringLen));
     Value::Table(Rc::new(RefCell::new(m)))
 }
 
 fn table_module() -> Value {
-    let mut m = HashMap::default();
+    let mut m = LinkedHashMap::default();
     m.insert("pack".into(), Value::Builtin(Builtin::TablePack));
     m.insert("unpack".into(), Value::Builtin(Builtin::TableUnpack));
     Value::Table(Rc::new(RefCell::new(m)))
@@ -438,6 +445,7 @@ fn default_globals() -> HashMap<String, Rc<RefCell<Value>>> {
     globals.insert("io".to_string(), Rc::new(RefCell::new(io_module())));
     globals.insert("string".to_string(), Rc::new(RefCell::new(string_module())));
     globals.insert("table".to_string(), Rc::new(RefCell::new(table_module())));
+    globals.insert("next".to_string(), Rc::new(RefCell::new(Value::Builtin(Builtin::Next))));
     globals
 }
 
@@ -457,6 +465,15 @@ fn main() {
         locals: vec![HashMap::new()],
     };
 
+    let prelude_source = include_str!("prelude.lua");
+    let prelude_ast = match LobsterParser::parse(prelude_source.to_string()) {
+        Ok(ast) => ast,
+        Err(e) => {
+            panic!("{}", e.render("<prelude.lua>", &prelude_source));
+        }
+    };
+
+    run_block(&prelude_ast, &mut context).expect("TODO");
     run_block(&ast, &mut context).expect("TODO");
 }
 
@@ -643,7 +660,7 @@ fn eval_multi(expr: &parser::Expr, context: &mut Context) -> Vec<Value> {
             body: body.clone(),
         }],
         parser::Expr::Table { values } => {
-            let mut map = HashMap::new();
+            let mut map = LinkedHashMap::new();
             for (key, value) in values {
                 map.insert(eval(key, context), eval(value, context));
             }
@@ -949,6 +966,23 @@ fn evaluate_function(
                 i = i + 1;
             }
             vals
+        }
+        Value::Builtin(Builtin::Next) => {
+            assert_eq!(evaluated_args.len(), 2);
+            let h = &evaluated_args[0];
+            let t = h
+                .try_as_table()
+                .expect("TODO: expected a table table thingy");
+            let idx = &evaluated_args[1];
+            let idx = match idx {
+                Value::Nil => None,
+                i => Some(i.clone())
+            };
+            if let Some((k,v)) = t.next(idx) {
+                vec![k,v]
+            } else {
+                vec![Value::Nil]
+            }
         }
         x => panic!("{x:?} is not callable"),
     }
