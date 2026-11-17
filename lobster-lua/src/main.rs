@@ -3,6 +3,7 @@
 use core::panic;
 use std::cell::RefCell;
 use std::io::{Read, Write};
+use std::mem::DropGuard;
 use std::rc::Rc;
 use std::{any::Any, collections::HashMap};
 // decisions:
@@ -459,13 +460,51 @@ fn default_globals() -> HashMap<String, Rc<RefCell<Value>>> {
 }
 
 fn main() {
-    let source = read_to_string("sample.lua").expect("todo");
+    let args: Vec<String> = std::env::args().collect();
+    let usage = DropGuard::new((), |()| {
+        println!("usage:");
+        println!("  lobster-lua run <filename>");
+        println!("  lobster-lua check <filename>");
+    });
+    if args.len() < 2 {
+        return;
+    }
+    let source_file;
+    let run;
+    match args[1].as_str() {
+        "run" => {
+            if args.len() != 3 {
+                println!("need a file name");
+                return;
+            }
+            source_file = &args[2];
+            run = true;
+        }
+        "check" => {
+            if args.len() != 3 {
+                println!("need a file name");
+                return;
+            }
+            source_file = &args[2];
+            run = false;
+        }
+        cmd => {
+            println!("unrecognized command {cmd:?}");
+            return;
+        }
+    }
+    DropGuard::dismiss(usage);
+
+    let source = read_to_string(source_file).expect("todo");
     let ast = match LobsterParser::parse(source.clone()) {
         Ok(ast) => ast,
         Err(e) => {
             panic!("{}", e.render("sample.lua", &source));
         }
     };
+    if !run {
+        return;
+    }
 
     let globals = default_globals();
     let mut context: Context = Context {
