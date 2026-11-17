@@ -16,9 +16,9 @@ mod e2e;
 #[cfg(test)]
 mod errortest;
 mod fraction;
+mod linked_hash_map;
 mod parser;
 mod tokenizer;
-mod linked_hash_map;
 
 use linked_hash_map::LinkedHashMap;
 
@@ -86,9 +86,15 @@ impl TableMut<'_> {
             self.0.insert(key, value);
         }
     }
-    
+
     fn next(&self, key: Option<Value>) -> Option<(Value, Value)> {
-        self.0.next(key.as_ref()).map(|(k,v)| (k.clone(), v.clone()))
+        self.0
+            .next(key.as_ref())
+            .map(|(k, v)| (k.clone(), v.clone()))
+    }
+
+    fn len(&self) -> usize {
+        self.0.len()
     }
 }
 
@@ -445,7 +451,10 @@ fn default_globals() -> HashMap<String, Rc<RefCell<Value>>> {
     globals.insert("io".to_string(), Rc::new(RefCell::new(io_module())));
     globals.insert("string".to_string(), Rc::new(RefCell::new(string_module())));
     globals.insert("table".to_string(), Rc::new(RefCell::new(table_module())));
-    globals.insert("next".to_string(), Rc::new(RefCell::new(Value::Builtin(Builtin::Next))));
+    globals.insert(
+        "next".to_string(),
+        Rc::new(RefCell::new(Value::Builtin(Builtin::Next))),
+    );
     globals
 }
 
@@ -532,17 +541,35 @@ fn run_block(stmts: &[parser::Stmt], context: &mut Context) -> Result<(), Ret> {
                 }
             }
             parser::Stmt::For { names, expr, body } => {
-                let iterator = eval(expr, context);
+                /*
+                https://www.lua.org/pil/7.2.html
+                do
+                    local _f, _s, _var = explist
+                    while true do
+                        local var_1, ... , var_n = _f(_s, _var)
+                        _var = var_1
+                        if _var == nil then break end
+                        block
+                    end
+                end
+                */
+                let xs = eval_multi(expr, context);
+                let f = xs.get(0).expect("TODO");
+                let s = xs.get(1).cloned().unwrap_or(Value::Nil);
+                let mut var = xs.get(2).cloned().unwrap_or(Value::Nil);
                 loop {
-                    let elems = evaluate_function(context, Vec::new(), iterator.clone());
-                    let first = elems.get(0).unwrap_or(&Value::Nil);
-                    if first == &Value::Nil {
+                    let vars = evaluate_function(context, vec![s.clone(), var], f.clone());
+                    var = vars.get(0).cloned().unwrap_or(Value::Nil);
+                    if var == Value::Nil {
                         break;
                     }
-                    for (name, elem) in names.iter().zip(elems.into_iter()) {
-                        context.insert_local(name.clone(), elem);
+
+                    context.enter_scope();
+                    for (name, var) in std::iter::zip(names, vars) {
+                        context.insert_local(name.clone(), var);
                     }
                     run_block(body.as_ref(), context)?;
+                    context.leave_scope();
                 }
             }
             parser::Stmt::Break => return Err(Ret::Break),
@@ -676,6 +703,17 @@ fn eval_multi(expr: &parser::Expr, context: &mut Context) -> Vec<Value> {
                         .unwrap_or(Value::Nil),
                 ],
                 _ => panic!("not a table"),
+            }
+        }
+        parser::Expr::Length(expr) => {
+            let res = eval(expr, context);
+            if let Some(string) = res.try_as_str() {
+                vec![Value::Number(string.len().try_into().expect("could not cast length to i64"))]
+            } else {
+                let Some(table) = res.try_as_table() else {
+                    panic!("this is neither a string nor a table. It is not any long");
+                };
+                vec![Value::Number(table.len().try_into().expect("could not cast length to i64"))]
             }
         }
     }
@@ -976,10 +1014,10 @@ fn evaluate_function(
             let idx = &evaluated_args[1];
             let idx = match idx {
                 Value::Nil => None,
-                i => Some(i.clone())
+                i => Some(i.clone()),
             };
-            if let Some((k,v)) = t.next(idx) {
-                vec![k,v]
+            if let Some((k, v)) = t.next(idx) {
+                vec![k, v]
             } else {
                 vec![Value::Nil]
             }

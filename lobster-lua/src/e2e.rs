@@ -16,6 +16,15 @@ fn run(source: &str) -> String {
         locals: vec![HashMap::new()],
     };
 
+    let prelude_source = include_str!("prelude.lua");
+    let prelude_ast = match LobsterParser::parse(prelude_source.to_string()) {
+        Ok(ast) => ast,
+        Err(e) => {
+            panic!("{}", e.render("<prelude.lua>", &prelude_source));
+        }
+    };
+
+    run_block(&prelude_ast, &mut context).expect("TODO");
     run_block(&ast, &mut context).expect("TODO");
 
     let stdout: Box<dyn Any> = context.stdout;
@@ -89,6 +98,27 @@ fn tables() {
         2
         3
         nil
+    "#]]
+    .assert_eq(&out);
+}
+
+#[test]
+fn test_next() {
+    let out = run(r#"
+t = {[[0]], [[1]], [ [[æ]] ] = 3, b = [[4]], [(I - I) - 5] = 100}
+k = next(t,nil)
+i = 0
+while k ~= nil do
+    print(k, t[k])
+    k = next(t,k)
+end
+"#);
+    expect_test::expect![[r#"
+        0, 0
+        1, 1
+        æ, 3
+        b, 4
+        -5, 100
     "#]]
     .assert_eq(&out);
 }
@@ -204,4 +234,67 @@ print(out)
 
     "#]]
     .assert_eq(&out);
+}
+
+#[test]
+fn loop_test() {
+    let out = run(r#"
+t = {[[0]], [[1]], [ [[æ]] ] = 3, b = [[4]], [(I - I) - 5] = 100}
+k = next(t,nil)
+i = 0
+for k,v in pairs(t) do
+    print(k, v)
+end
+"#);
+    expect_test::expect![[r#"
+        0, 0
+        1, 1
+        æ, 3
+        b, 4
+        -5, 100
+    "#]]
+    .assert_eq(&out);
+}
+
+#[test]
+fn scope_test() {
+    let out = run(r#"
+t = {[[0]], [[1]], [ [[æ]] ] = 3, b = [[4]], [(I - I) - 5] = 100}
+k = [[1234]]
+v = 1
+i = 0
+fs = {}
+for k,v in pairs(t) do
+  fs[#fs] = function() print(k, v) end
+end
+print([[values from the past]], k,v)
+for x, f in pairs(fs) do
+  f()
+end
+"#);
+    expect_test::expect![[r#"
+        values from the past, 1234, 1
+        0, 0
+        1, 1
+        æ, 3
+        b, 4
+        -5, 100
+    "#]]
+    .assert_eq(&out);
+}
+
+#[test]
+fn ipairs_test() {
+    let out = run(r#"
+t = {0, [[a]], 2, foo=67}
+for k,v in ipairs(t) do
+    print(k,v)
+end
+        "#);
+
+    expect_test::expect![[r#"
+        0, 0
+        1, a
+        2, 2
+    "#]].assert_eq(&out);
 }

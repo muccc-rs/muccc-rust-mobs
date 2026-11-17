@@ -87,6 +87,7 @@ pub enum Expr {
         table: Box<Expr>,
         index: Box<Expr>,
     },
+    Length(Box<Expr>),
 }
 
 impl Expr {
@@ -137,6 +138,9 @@ impl Expr {
             Expr::TableIndex { table, index } => {
                 format!("{}[{}]", table.to_s_expr(), index.to_s_expr())
             }
+            Expr::Length(expr) => {
+                format!("len({})", expr.to_s_expr())
+            },
         }
     }
 }
@@ -694,6 +698,15 @@ impl LobsterParser {
             &Token::Keyword(Keyword::False) => {
                 self.advance()?;
                 Expr::Boolean(false)
+            }
+            Token::Hash => {
+                self.advance()?;
+                let expr = self.parse_atomic_expr()?;
+                let expr = expr.ok_or(ParserError {
+                    message: "expected expression after length operator".to_string(),
+                    pos: self.current_pos,
+                })?;
+                Expr::Length(Box::new(expr))
             }
             Token::StringLiteral(s) => {
                 let s = s.clone();

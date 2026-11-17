@@ -171,7 +171,7 @@ os.execute([[uname -a]])
 
 -- fuck = 0
 -- fuck_tab = nil
-function real_pairs(tab)
+function unreal_pairs(tab)
   local fuck = 0
   local fuck_tab = tab
   return function()
@@ -183,9 +183,9 @@ end
 
 print([[Nested Loops:]])
 t = {{1, 2, 3}, {4, 5, 6}}
-for x in pairs(t) do
+for i,x in ipairs(t) do
   print(x)
-  for y in pairs(x) do
+  for i,y in ipairs(x) do
     print(y)
   end
 end
@@ -197,7 +197,7 @@ t = {
   c = 3,
 }
 print(t)
-for k, v in pairs(t) do
+for k, v in ipairs(t) do
   print(k, [[=]], v)
 end
 
@@ -213,7 +213,7 @@ function html_escape(source)
 
 
   first = true
-  for part in real_pairs(amp_parts) do
+  for i,part in pairs(amp_parts) do
     if first then
       result = part
       first = false
@@ -226,7 +226,7 @@ function html_escape(source)
   local lt_parts = string.gmatch(result, [==[([^<])]==])
 
   first = true
-  for part in real_pairs(lt_parts) do
+  for i,part in ipairs(lt_parts) do
     if first then
       result2 = part
       first = false
@@ -285,7 +285,7 @@ print([[packed multi return]], t)
 a, b, c = multireturn()
 print([[a]], a, [[b]], b, [[c]], c)
 
-for v, i in real_pairs(t) do
+for i, v in ipairs(t) do
   print([[i]], i, [[v]], v)
 end
 
